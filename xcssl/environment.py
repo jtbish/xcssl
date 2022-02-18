@@ -6,8 +6,8 @@ import pandas as pd
 
 _DEFAULT_SHUFFLE_SEED = 0
 
-_REWARD_INCORRECT = 0
-_REWARD_CORRECT = 1000
+REWARD_INCORRECT = 0
+REWARD_CORRECT = 1000
 
 
 def check_terminal(public_method):
@@ -93,9 +93,9 @@ class EnvironmentBase(metaclass=abc.ABCMeta):
         label = self._dataset["labels"][self._curr_obs_idx]
         correct = (action == label)
         if correct:
-            reward = _REWARD_CORRECT
+            reward = REWARD_CORRECT
         else:
-            reward = _REWARD_INCORRECT
+            reward = REWARD_INCORRECT
 
         # update obs idx
         self._curr_obs_idx = self._get_next_obs_idx()

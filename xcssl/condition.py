@@ -43,7 +43,7 @@ class ConditionABC(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
 
-def TernaryCondition(ConditionABC):
+class TernaryCondition(ConditionABC):
     def does_match(self, obs):
         for (obs_compt, elem) in zip(obs, self._phenotype):
             if elem != TERNARY_HASH and elem != obs_compt:
@@ -60,7 +60,7 @@ def TernaryCondition(ConditionABC):
         return " ".join([str(elem) for elem in self._phenotype])
 
 
-def IntervalCondition(ConditionABC):
+class IntervalCondition(ConditionABC):
     def does_match(self, obs):
         for (obs_compt, interval) in zip(obs, self._phenotype):
             if not interval.contains_val(obs_compt):

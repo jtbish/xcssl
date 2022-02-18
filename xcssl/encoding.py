@@ -72,6 +72,8 @@ class TernaryEncoding(EncodingABC):
                     mut_alleles.append(obs_compt)
                 else:
                     mut_alleles.append(TERNARY_HASH)
+            else:
+                mut_alleles.append(allele)
         assert len(mut_alleles) == len(cond_alleles)
         return mut_alleles
 

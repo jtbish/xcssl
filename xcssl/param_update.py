@@ -41,7 +41,7 @@ def _update_prediction(clfr, payoff_diff):
     if clfr.experience < (1 / beta):
         clfr.prediction += (payoff_diff / clfr.experience)
     else:
-        clfr.predcition += (beta * payoff_diff)
+        clfr.prediction += (beta * payoff_diff)
 
 
 def _update_action_set_size(clfr, as_num_micros):

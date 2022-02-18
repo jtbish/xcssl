@@ -27,6 +27,7 @@ class XCS:
 
         self._pop = Population()
         self._action_selection_mode = None
+        self._time_step = 0
         self._num_epochs_done = 0
 
     @property
