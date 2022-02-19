@@ -1,9 +1,13 @@
+import abc
+import numpy as np
+import sys
 import logging
 from collections import OrderedDict
 
 from .action_selection import (NULL_ACTION, ActionSelectionModes,
                                choose_action_selection_mode,
                                greedy_action_selection)
+from .clustering import ConditionClustering
 from .covering import calc_num_unique_actions, gen_covering_classifier
 from .deletion import deletion
 from .ga import run_ga
@@ -15,7 +19,7 @@ from .rng import seed_rng
 from .util import calc_num_micros
 
 
-class XCS:
+class XCSABC(metaclass=abc.ABCMeta):
     def __init__(self, env, encoding, action_selection_strat,
                  hyperparams_dict):
         self._env = env
@@ -35,6 +39,14 @@ class XCS:
         return self._pop
 
     def train_for_epoch(self):
+        # TODO remove
+        if self._num_epochs_done == 1:
+            conds = [clfr.condition for clfr in self._pop]
+            k = 20
+            cc = ConditionClustering(conds, k)
+            dm = cc._dist_matrix
+            sys.exit(1)
+
         assert self._env.is_terminal
         self._env.init_epoch()
         while not self._env.is_terminal:
@@ -55,20 +67,13 @@ class XCS:
                          self._encoding, obs, self._env.action_space)
         self._time_step += 1
 
+    @abc.abstractmethod
     def _gen_match_set_and_cover(self, obs):
-        match_set = self._gen_match_set(obs)
-        theta_mna = len(self._env.action_space)  # always cover all actions
-        while (calc_num_unique_actions(match_set) < theta_mna):
-            clfr = gen_covering_classifier(obs, self._encoding, match_set,
-                                           self._env.action_space,
-                                           self._time_step)
-            self._pop.add_new(clfr, op="covering")
-            deletion(self._pop)
-            match_set.append(clfr)
-        return match_set
+        raise NotImplementedError
 
+    @abc.abstractmethod
     def _gen_match_set(self, obs):
-        return [clfr for clfr in self._pop if clfr.does_match(obs)]
+        raise NotImplementedError
 
     def _gen_prediction_arr(self, match_set, obs):
         prediction_arr = OrderedDict(
@@ -132,3 +137,39 @@ class XCS:
         """For outside probing."""
         match_set = self._gen_match_set(obs)
         return self._gen_prediction_arr(match_set, obs)
+
+
+class VanillaXCS(XCSABC):
+    """XCS that does default (fully accurate, exhuastive) matching
+    procedure."""
+    def _gen_match_set_and_cover(self, obs):
+        match_set = self._gen_match_set(obs)
+        theta_mna = len(self._env.action_space)  # always cover all actions
+        while (calc_num_unique_actions(match_set) < theta_mna):
+            clfr = gen_covering_classifier(obs, self._encoding, match_set,
+                                           self._env.action_space,
+                                           self._time_step)
+            self._pop.add_new(clfr, op="covering")
+            deletion(self._pop)
+            match_set.append(clfr)
+        return match_set
+
+    def _gen_match_set(self, obs):
+        """Match all macroclassifiers."""
+        return [clfr for clfr in self._pop if clfr.does_match(obs)]
+
+
+class FastApproxMatchingXCS(XCSABC):
+    def __init__(self, env, encoding, action_selection_strat,
+                 hyperparams_dict):
+        # don't init clustering yet
+        self._cond_clustering = None
+        self._last_cover_time_step = None
+        super().__init__(env, encoding, action_selection_strat,
+                         hyperparams_dict)
+
+    def _gen_match_set_and_cover(self, obs):
+        raise NotImplementedError
+
+    def _gen_match_set(self, obs):
+        raise NotImplementedError

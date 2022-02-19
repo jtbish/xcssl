@@ -24,7 +24,15 @@ class ConditionABC(metaclass=abc.ABCMeta):
         return self._generality
 
     def __eq__(self, other):
-        return self._alleles == other._alleles
+        # phenotypic equivalence
+        for (my_elem, other_elem) in zip(self._phenotype, other._phenotype):
+            if my_elem != other_elem:
+                return False
+        return True
+
+    def __hash__(self):
+        # combined hash of phenotype elems
+        return hash(tuple(self._phenotype))
 
     def __len__(self):
         return len(self._phenotype)
@@ -36,6 +44,11 @@ class ConditionABC(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def does_subsume(self, other):
         """Does this condition subsume other condition?"""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def distance_between(self, other):
+        """(Symmetric) disance between this condition annd other condition."""
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -56,6 +69,13 @@ class TernaryCondition(ConditionABC):
                 return False
         return True
 
+    def distance_between(self, other):
+        """Num elems of phenotype that differ."""
+        return [
+            my_elem != other_elem
+            for (my_elem, other_elem) in zip(self._phenotype, other._phenotype)
+        ].count(True)
+
     def __str__(self):
         return " ".join([str(elem) for elem in self._phenotype])
 
@@ -73,6 +93,14 @@ class IntervalCondition(ConditionABC):
             if not my_interval.does_subsume(other_interval):
                 return False
         return True
+
+    def distance_between(self, other):
+        """Combined distance between each phenotypic interval."""
+        sum_ = 0
+        for (my_interval, other_interval) in zip(self._phenotype,
+                                                 other._phenotype):
+            sum_ += my_interval.distance_between(other_interval)
+        return sum_
 
     def __str__(self):
         return " && ".join([str(interval) for interval in self._phenotype])

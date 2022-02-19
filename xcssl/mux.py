@@ -8,6 +8,7 @@ from .obs_space import make_binary_obs_space
 
 _MIN_NUM_ADDR_BITS = 2
 _ACTION_SPACE = (0, 1)
+_NP_DTYPE = np.uint8  # use minimal memory
 
 
 def make_mux_env(num_addr_bits, shuffle_seed):
@@ -34,12 +35,13 @@ class MultiplexerEnvironment(EnvironmentBase):
         labels = []
         bitstrings = itertools.product([0, 1], repeat=total_num_bits)
         for bitstring in bitstrings:
-            examples.append(np.array(bitstring))
+            examples.append(np.array(bitstring, dtype=_NP_DTYPE))
             label = self._calc_label(bitstring, num_addr_bits)
             labels.append(label)
         assert len(examples) == len(labels)
 
         dataset = pd.DataFrame({"examples": examples, "labels": labels})
+        dataset = dataset.astype({"labels": _NP_DTYPE})
         return dataset
 
     def _calc_label(self, bitstring, num_addr_bits):

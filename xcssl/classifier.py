@@ -160,6 +160,9 @@ class Classifier:
         return (self._action == other._action) and (self._condition
                                                     == other._condition)
 
+    def __hash__(self):
+        return hash((self._condition, self._action))
+
     def full_eq(self, other):
         # full version of eq: check all non-calculated params
         return (self._condition == other._condition

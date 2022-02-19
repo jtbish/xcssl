@@ -14,6 +14,8 @@ class Population:
             "as_subsumption": 0
         }
 
+        self._clfrs_set = set()
+
     @property
     def num_macros(self):
         return len(self._clfrs)
@@ -27,6 +29,10 @@ class Population:
         return self._ops_history
 
     def add_new(self, clfr, op):
+        # TODO change
+        assert clfr not in self._clfrs_set
+        self._clfrs_set.add(clfr)
+
         self._clfrs.append(clfr)
         self._num_micros += clfr.numerosity
         assert op in ("covering", "insertion")
@@ -41,6 +47,10 @@ class Population:
         self._ops_history[op] += abs(delta)
 
     def remove(self, clfr, op=None):
+        # TODO change
+        assert clfr in self._clfrs_set
+        self._clfrs_set.remove(clfr)
+
         self._clfrs.remove(clfr)
         self._num_micros -= clfr.numerosity
         if op is not None:
