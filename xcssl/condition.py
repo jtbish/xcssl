@@ -47,7 +47,7 @@ class ConditionABC(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def distance_between(self, other):
+    def distance_from(self, other):
         """(Symmetric) disance between this condition annd other condition."""
         raise NotImplementedError
 
@@ -69,7 +69,7 @@ class TernaryCondition(ConditionABC):
                 return False
         return True
 
-    def distance_between(self, other):
+    def distance_from(self, other):
         """Num elems of phenotype that differ."""
         return [
             my_elem != other_elem
@@ -94,12 +94,12 @@ class IntervalCondition(ConditionABC):
                 return False
         return True
 
-    def distance_between(self, other):
-        """Combined distance between each phenotypic interval."""
+    def distance_from(self, other):
+        """Combined distance of each phenotypic interval."""
         sum_ = 0
         for (my_interval, other_interval) in zip(self._phenotype,
                                                  other._phenotype):
-            sum_ += my_interval.distance_between(other_interval)
+            sum_ += my_interval.distance_from(other_interval)
         return sum_
 
     def __str__(self):

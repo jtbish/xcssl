@@ -31,7 +31,7 @@ class IntervalABC(metaclass=abc.ABCMeta):
         """Does this interval subsume other interval?"""
         return (self._lower <= other._lower and self._upper >= other._upper)
 
-    def distance_between(self, other):
+    def distance_from(self, other):
         """(Symmetric) distance between this interval and other interval."""
         lower_diff = abs(self._lower - other._lower)
         upper_diff = abs(self._upper - other._upper)

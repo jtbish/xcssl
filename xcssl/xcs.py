@@ -44,7 +44,6 @@ class XCSABC(metaclass=abc.ABCMeta):
             conds = [clfr.condition for clfr in self._pop]
             k = 20
             cc = ConditionClustering(conds, k)
-            dm = cc._dist_matrix
             sys.exit(1)
 
         assert self._env.is_terminal
@@ -140,7 +139,7 @@ class XCSABC(metaclass=abc.ABCMeta):
 
 
 class VanillaXCS(XCSABC):
-    """XCS that does default (fully accurate, exhuastive) matching
+    """XCS that does the default (fully accurate, exhuastive) matching
     procedure."""
     def _gen_match_set_and_cover(self, obs):
         match_set = self._gen_match_set(obs)
