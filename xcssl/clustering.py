@@ -2,6 +2,7 @@ import logging
 
 import numpy as np
 
+from .hyperparams import get_hyperparam as get_hp
 from .rng import get_rng
 
 _MIN_K = 2
@@ -10,20 +11,36 @@ _MIN_DIST = 0
 
 class ConditionClustering:
     """k-medoids clustering of (macro)classifier conditions."""
-    def __init__(self, conditions, k):
+    def __init__(self):
+        k = get_hp("cc_k")
         assert k >= _MIN_K
         self._k = k
+
+        self._unique_conditions = None
+        self._dist_matrix = None
+        self._clustering = None
+        self._cost = None
+
+        self._is_empty = True
+
+    @property
+    def is_empty(self):
+        return self._is_empty
+
+    def init_clustering(self, macroclfr_conditions):
+        assert self._is_empty
         # can have dup. conds since might have two macroclfrs with same
-        # cond. but diff. action
-        self._unique_conditions = set(conditions)
+        # cond. but diff. action, only do the clustering on unique ones
+        self._unique_conditions = set(macroclfr_conditions)
         self._dist_matrix = self._init_dist_matrix(self._unique_conditions)
         (self._clustering,
          self._cost) = self._init_clustering(self._unique_conditions,
                                              self._dist_matrix, self._k)
+        self._is_empty = False
 
     def _init_dist_matrix(self, unique_conditions):
         m = len(unique_conditions)
-        logging.info(f"Num uniques conds (m) = {m}")
+        logging.info(f"Num unique conds (m) = {m}")
 
         dist_matrix = {}
         num_dist_calcs = 0
@@ -56,18 +73,11 @@ class ConditionClustering:
         return dist_matrix
 
     def _init_clustering(self, unique_conditions, dist_matrix, k):
-        # clustering is a mapping from medoid condition to conditions in its
-        # cluster
-
-        # 0. sample medoids
+        # 0. sample medoids uniformly at random
         assert k <= len(unique_conditions)
         medoids = set(get_rng().choice(list(unique_conditions),
                                        size=k,
                                        replace=False))
-        # TODO
-        # Set ordering varying here..... wtf
-        for medoid in medoids:
-            logging.info(str(medoid))
 
         # 1. associate each other condition with closest medoid to build
         # intial clustering
@@ -85,6 +95,8 @@ class ConditionClustering:
                                  dist_matrix):
         """Build clustering by associating each obj in set unique_conditions -
         medoids to its closest medoid according to dist_matrix."""
+        # clustering is a mapping from medoid condition to conditions in its
+        # cluster
         clustering = {medoid: set() for medoid in medoids}
         others = (unique_conditions - medoids)
         cost = 0
@@ -171,3 +183,21 @@ class ConditionClustering:
             prev_cost = curr_cost
 
         return (clustering, curr_cost)
+
+    def gen_condition_match_map(self, obs):
+        condition_match_map = {}
+        # match each medoid, and others in its cluster inherit its matching
+        # status
+        for medoid in self._clustering.keys():
+            does_match = medoid.does_match(obs)
+            condition_match_map[medoid] = does_match
+            for other in self._clustering[medoid]:
+                condition_match_map[other] = does_match
+
+        return condition_match_map
+
+    def add_condition(self, condition):
+        pass
+
+    def remove_condition(self, condition):
+        pass
