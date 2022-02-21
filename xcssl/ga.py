@@ -50,9 +50,9 @@ def run_ga(action_set, pop, time_step, encoding, obs, action_space):
             elif does_subsume(parent_b, child):
                 pop.alter_numerosity(parent_b, delta=1, op="ga_subsumption")
             else:
-                _insert_in_pop(pop, child)
+                _insert_in_pop(pop, child, time_step)
         else:
-            _insert_in_pop(pop, child)
+            _insert_in_pop(pop, child, time_step)
         deletion(pop)
 
 
@@ -114,11 +114,11 @@ def _mutate_action(child, action_space):
         child.action = mut_action
 
 
-def _insert_in_pop(pop, child):
+def _insert_in_pop(pop, child, time_step):
     for clfr in pop:
         # check action first to potentially short circuit more expensive
         # condition check
         if (clfr.action == child.action and clfr.condition == child.condition):
             pop.alter_numerosity(clfr, delta=1, op="absorption")
             return
-    pop.add_new(child, op="insertion")
+    pop.add_new(child, op="insertion", time_step=time_step)

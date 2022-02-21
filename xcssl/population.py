@@ -92,7 +92,7 @@ class VanillaPopulation(PopulationABC):
         return self._gen_match_set_exhaustive(obs)
 
 
-def FastApproxMatchingPopulation(PopulationABC):
+class FastApproxMatchingPopulation(PopulationABC):
     def __init__(self):
         # init new (empty) condition clustering
         self._condition_clustering = ConditionClustering()

@@ -93,12 +93,14 @@ class ConditionClustering:
 
     def _assoc_others_to_medoids(self, medoids, unique_conditions,
                                  dist_matrix):
-        """Build clustering by associating each obj in set unique_conditions -
-        medoids to its closest medoid according to dist_matrix."""
+        """Build clustering by associating each obj in set (unique_conditions -
+        medoids) to its closest medoid according to dist_matrix."""
         # clustering is a mapping from medoid condition to conditions in its
-        # cluster
+        # cluster. Also maintain an "inverse" clustering to make inverse
+        # lookups fast
         clustering = {medoid: set() for medoid in medoids}
         others = (unique_conditions - medoids)
+        inv_clustering = {other: None for other in others}
         cost = 0
 
         for other in others:
@@ -136,7 +138,7 @@ class ConditionClustering:
         """Optimise clustering with given cost via application of k-means style
         Voronoi iteration algorithm."""
 
-        medoids = set(clustering.keys())
+        medoids = clustering.keys()
         prev_cost = cost
         converged = False
         iter_num = 0
@@ -152,14 +154,14 @@ class ConditionClustering:
 
                 min_dist_sum = None
                 new_medoid = None
-                for obj_a in cluster:
+                for (idx_a, cond_a) in enumerate(cluster):
                     dist_sum = 0
-                    for obj_b in cluster:
-                        if obj_a != obj_b:
-                            dist_sum += dist_matrix[obj_a][obj_b]
+                    for (idx_b, cond_b) in enumerate(cluster):
+                        if idx_a != idx_b:  # idx equality is fast
+                            dist_sum += dist_matrix[cond_a][cond_b]
                     if min_dist_sum is None or dist_sum < min_dist_sum:
                         min_dist_sum = dist_sum
-                        new_medoid = obj_a
+                        new_medoid = cond_a
 
                 assert min_dist_sum is not None
                 assert new_medoid is not None
@@ -197,7 +199,102 @@ class ConditionClustering:
         return condition_match_map
 
     def add_condition(self, condition):
-        pass
+        # condition being added *may not* be unique. If it's a dup, there is
+        # nothing to do.
+        is_dup = (condition in self._unique_conditions)
+        if not is_dup:
+            # update the dist matrix
+            self._dist_matrix = self._add_new_to_dist_matrix(
+                self._dist_matrix, self._unique_conditions, condition)
+            # add it to unique set *afterwards*
+            self._unique_conditions.add(condition)
+            # do single assoc
+            (self._clustering, self._cost) = \
+                self._update_clustering_new_condition(self._clustering,
+                                                      self._cost,
+                                                      self._dist_matrix,
+                                                      condition)
+            # iterate till converge
+            (self._clustering, self._cost) = \
+                self._optimise_clustering(self._clustering, self._cost,
+                                          self._dist_matrix,
+                                          self._unique_conditions)
+
+    def _add_new_to_dist_matrix(self, dist_matrix, unique_conditions,
+                                condition):
+        self._dist_matrix[condition] = {}
+        # dist for self
+        self._dist_matrix[condition][condition] = _MIN_DIST
+        # dist for others (symmetrical)
+        for other in unique_conditions:
+            dist = condition.distance_from(other)
+            self._dist_matrix[condition][other] = dist
+            self._dist_matrix[other][condition] = dist
+
+        return self._dist_matrix
+
+    def _update_clustering_new_condition(self, clustering, cost, dist_matrix,
+                                         condition):
+        # Update the clustering, i.e. do an assoc step but only with
+        # the single new condition
+        medoids = clustering.keys()
+        min_dist = None
+        assoc_medoid = None
+        for medoid in medoids:
+            dist = dist_matrix[condition][medoid]
+            if min_dist is None or dist < min_dist:
+                min_dist = dist
+                assoc_medoid = medoid
+        assert min_dist is not None
+        assert assoc_medoid is not None
+
+        assert condition not in clustering[assoc_medoid]
+        clustering[assoc_medoid].add(condition)
+        cost += min_dist
+
+        return (clustering, cost)
 
     def remove_condition(self, condition):
-        pass
+        assert condition in self._unique_conditions
+
+        # 0. check if condition is a medoid
+        medoids = set(self._clustering.keys())
+        if condition in medoids:
+            # TODO deal with this later
+            raise Exception
+
+        # 1. it's not a medoid, so figure out which medoid it belongs to
+        # remove it from the clustering and update the cost
+        assoc_medoid = None
+        for medoid in medoids:
+            if condition in self._clustering[medoid]:
+                assoc_medoid = medoid
+        assert assoc_medoid is not None
+        dist_to_assoc_medoid = self._dist_matrix[condition][assoc_medoid]
+        self._clustering[assoc_medoid].remove(condition)
+        self._cost -= dist_to_assoc_medoid
+
+        # 2. remove from dist matrix
+        self._dist_matrix = \
+            self._remove_existing_from_dist_matrix(self._dist_matrix,
+                                                   self._unique_conditions,
+                                                   condition)
+        # 3. remove from unique conditions
+        self._unique_conditions.remove(condition)
+
+        # 4. iterate till converge
+        (self._clustering, self._cost) = \
+            self._optimise_clustering(self._clustering, self._cost,
+                                      self._dist_matrix,
+                                      self._unique_conditions)
+
+    def _remove_existing_from_dist_matrix(self, dist_matrix, unique_conditions,
+                                          condition):
+        # delete own row
+        del (dist_matrix[condition])
+        # delete column in other rows
+        others = (unique_conditions - {condition})
+        for other in others:
+            del (dist_matrix[other][condition])
+
+        return dist_matrix
