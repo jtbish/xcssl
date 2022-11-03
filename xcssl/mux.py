@@ -3,7 +3,7 @@ import itertools
 import numpy as np
 import pandas as pd
 
-from .environment import EnvironmentBase
+from .environment import ClassificationEnvironmentBase
 from .obs_space import make_binary_obs_space
 
 _MIN_NUM_ADDR_BITS = 2
@@ -11,13 +11,13 @@ _ACTION_SPACE = (0, 1)
 _NP_DTYPE = np.uint8  # use minimal memory
 
 
-def make_mux_env(num_addr_bits, shuffle_seed):
+def make_mux_env(num_addr_bits, shuffle_seed=None):
     num_addr_bits = int(num_addr_bits)
     assert num_addr_bits >= _MIN_NUM_ADDR_BITS
     return MultiplexerEnvironment(num_addr_bits, shuffle_seed)
 
 
-class MultiplexerEnvironment(EnvironmentBase):
+class MultiplexerEnvironment(ClassificationEnvironmentBase):
     def __init__(self, num_addr_bits, shuffle_seed):
         self._num_addr_bits = num_addr_bits
         self._num_reg_bits = 2**num_addr_bits

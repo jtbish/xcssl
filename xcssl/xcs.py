@@ -64,7 +64,7 @@ class XCS:
         self._time_step += 1
 
     def _gen_match_set_and_cover(self, obs):
-        match_set = self._gen_match_set_train(obs)
+        match_set = self._gen_match_set(obs)
         theta_mna = len(self._env.action_space)  # always cover all actions
         while (calc_num_unique_actions(match_set) < theta_mna):
             clfr = gen_covering_classifier(obs, self._encoding, match_set,
@@ -75,11 +75,8 @@ class XCS:
             match_set.append(clfr)
         return match_set
 
-    def _gen_match_set_train(self, obs):
-        return self._pop.gen_match_set_train(obs, self._time_step)
-
-    def _gen_match_set_test(self, obs):
-        return self._pop.gen_match_set_test(obs)
+    def _gen_match_set(self, obs):
+        return self._pop.gen_match_set(obs)
 
     def _gen_prediction_arr(self, match_set, obs):
         prediction_arr = OrderedDict(
@@ -96,7 +93,7 @@ class XCS:
 
         for clfr in match_set:
             a = clfr.action
-            prediction_arr[a] += clfr.prediction * clfr.fitness
+            prediction_arr[a] += (clfr.prediction * clfr.fitness)
             fitness_sum_arr[a] += clfr.fitness
 
         for a in self._env.action_space:
@@ -132,7 +129,7 @@ class XCS:
 
     def select_action(self, obs):
         """Action selection for outside testing - always exploit"""
-        match_set = self._gen_match_set_test(obs)
+        match_set = self._gen_match_set(obs)
         if len(match_set) > 0:
             prediction_arr = self._gen_prediction_arr(match_set, obs)
             return greedy_action_selection(prediction_arr)
@@ -141,5 +138,5 @@ class XCS:
 
     def gen_prediction_arr(self, obs):
         """For outside testing."""
-        match_set = self._gen_match_set_test(obs)
+        match_set = self._gen_match_set(obs)
         return self._gen_prediction_arr(match_set, obs)

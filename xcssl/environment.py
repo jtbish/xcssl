@@ -33,13 +33,9 @@ class OutOfDataError(Exception):
     pass
 
 
-class EnvironmentBase(metaclass=abc.ABCMeta):
-    """Supervised learning environment base class."""
-    def __init__(self,
-                 dataset,
-                 obs_space,
-                 action_space,
-                 shuffle_seed=_DEFAULT_SHUFFLE_SEED):
+class ClassificationEnvironmentBase(metaclass=abc.ABCMeta):
+    """Supervised learning, classification environment base class."""
+    def __init__(self, dataset, obs_space, action_space, shuffle_seed=None):
         self._validate_dataset(dataset)
         self._dataset = dataset
         self._obs_space = obs_space
@@ -47,6 +43,9 @@ class EnvironmentBase(metaclass=abc.ABCMeta):
 
         self._curr_obs_idx = None
         self._is_terminal = True
+
+        if shuffle_seed is None:
+            shuffle_seed = _DEFAULT_SHUFFLE_SEED
 
         self._shuffle_rng = np.random.RandomState(seed=int(shuffle_seed))
         self._num_examples = len(dataset)

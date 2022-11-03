@@ -1,25 +1,41 @@
 import abc
 
+import numpy as np
+
 from .condition import TERNARY_HASH, IntervalCondition, TernaryCondition
 from .hyperparams import get_hyperparam as get_hp
 from .interval import IntegerInterval, RealInterval
 from .obs_space import IntegerObsSpace, RealObsSpace
+from .phenotype import VanillaPhenotype, VectorisedPhenotype
 from .rng import get_rng
 
 
 class EncodingABC(metaclass=abc.ABCMeta):
-    def __init__(self, obs_space):
+    def __init__(self, obs_space, use_fast_approx_matching):
         self._obs_space = obs_space
+        self._use_fast_approx_matching = use_fast_approx_matching
+
+    @property
+    def obs_space(self):
+        return self._obs_space
 
     def make_condition(self, cond_alleles):
         return self._COND_CLS(cond_alleles, self)
+
+    def decode(self, cond_alleles):
+        phenotype_elems = self._decode(cond_alleles)
+        if not self._use_fast_approx_matching:
+            return VanillaPhenotype(phenotype_elems)
+        else:
+            phenotype_vec = self.gen_phenotype_vec(phenotype_elems)
+            return VectorisedPhenotype(phenotype_elems, phenotype_vec)
 
     @abc.abstractmethod
     def gen_covering_condition(self, obs):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def decode(self, cond_alleles):
+    def _decode(self, cond_alleles):
         """Convert genotype to phenotype."""
         raise NotImplementedError
 
@@ -31,17 +47,34 @@ class EncodingABC(metaclass=abc.ABCMeta):
     def mutate_condition_alleles(self, cond_alleles, obs=None):
         raise NotImplementedError
 
+    @abc.abstractmethod
+    def does_phenotype_match(self, phenotype, obs):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def calc_num_phenotype_vec_dims(self):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def gen_phenotype_vec(self, phenotype_elems):
+        """Generate vectorised repr of phenotype."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def distance_between(self, phenotype_vec_a, phenotype_vec_b):
+        raise NotImplementedError
+
 
 class TernaryEncoding(EncodingABC):
     _COND_CLS = TernaryCondition
 
-    def __init__(self, obs_space):
+    def __init__(self, obs_space, use_fast_approx_matching):
         assert isinstance(obs_space, IntegerObsSpace)
-        # check is binary
+        # check is actually binary
         for dim in obs_space.dims:
             assert dim.lower == 0
             assert dim.upper == 1
-        super().__init__(obs_space)
+        super().__init__(obs_space, use_fast_approx_matching)
 
     def gen_covering_condition(self, obs):
         num_alleles = len(self._obs_space)
@@ -53,16 +86,17 @@ class TernaryEncoding(EncodingABC):
                 cond_alleles.append(TERNARY_HASH)
             else:
                 cond_alleles.append(obs_compt)
+
         assert len(cond_alleles) == num_alleles
         return self.make_condition(cond_alleles)
 
-    def decode(self, cond_alleles):
+    def _decode(self, cond_alleles):
         # genotype == phenotype
-        return list(cond_alleles)
+        return tuple(cond_alleles)
 
     def calc_condition_generality(self, phenotype):
         """Number of don't care elems."""
-        return phenotype.count(TERNARY_HASH)
+        return phenotype.elems.count(TERNARY_HASH)
 
     def mutate_condition_alleles(self, cond_alleles, obs):
         mut_alleles = []
@@ -76,6 +110,38 @@ class TernaryEncoding(EncodingABC):
                 mut_alleles.append(allele)
         assert len(mut_alleles) == len(cond_alleles)
         return mut_alleles
+
+    def does_phenotype_match(self, phenotype, obs):
+        for (obs_compt, elem) in zip(obs, phenotype):
+            if (elem != TERNARY_HASH and elem != obs_compt):
+                return False
+        return True
+
+    def calc_num_phenotype_vec_dims(self):
+        return (2 * len(self._obs_space))
+
+    def gen_phenotype_vec(self, phenotype_elems):
+        vec = []
+
+        for elem in phenotype_elems:
+            # one-hot encoding of elem vals, hash counts as both 0 and 1
+            if elem == 0:
+                val = [1, 0]
+            elif elem == 1:
+                val = [0, 1]
+            elif elem == TERNARY_HASH:
+                val = [1, 1]
+            else:
+                assert False
+
+            vec.extend(val)
+
+        return np.asarray(vec, dtype=np.uint8)
+
+    def distance_between(self, phenotype_vec_a, phenotype_vec_b):
+        """Hamming dist."""
+        return sum(e_a != e_b
+                   for (e_a, e_b) in zip(phenotype_vec_a, phenotype_vec_b))
 
 
 class UnorderedBoundEncodingABC(EncodingABC, metaclass=abc.ABCMeta):
@@ -101,7 +167,7 @@ class UnorderedBoundEncodingABC(EncodingABC, metaclass=abc.ABCMeta):
         """Return (lower, upper) covering alleles, with lower <= upper."""
         raise NotImplementedError
 
-    def decode(self, cond_alleles):
+    def _decode(self, cond_alleles):
         phenotype = []
         assert len(cond_alleles) % 2 == 0
         for i in range(0, len(cond_alleles), 2):
@@ -141,14 +207,29 @@ class UnorderedBoundEncodingABC(EncodingABC, metaclass=abc.ABCMeta):
     def _gen_mutation_noise(self, dim=None):
         raise NotImplementedError
 
+    def does_phenotype_match(self, phenotype, obs):
+        for (obs_compt, interval) in zip(obs, phenotype):
+            if not interval.contains_val(obs_compt):
+                return False
+        return True
+
+    def calc_num_phenotype_vec_dims(self):
+        raise NotImplementedError
+
+    def gen_phenotype_vec(self, phenotype_elems):
+        raise NotImplementedError
+
+    def distance_between(self, phenotype_vec_a, phenotype_vec_b):
+        raise NotImplementedError
+
 
 class IntegerUnorderedBoundEncoding(UnorderedBoundEncodingABC):
     _GENERALITY_LB_EXCL = 0
     _INTERVAL_CLS = IntegerInterval
 
-    def __init__(self, obs_space):
+    def __init__(self, obs_space, use_fast_approx_matching):
         assert isinstance(obs_space, IntegerObsSpace)
-        super().__init__(obs_space)
+        super().__init__(obs_space, use_fast_approx_matching)
 
     def _gen_covering_alleles(self, obs_compt, dim):
         r_nought = get_hp("r_nought")
@@ -180,9 +261,9 @@ class RealUnorderedBoundEncoding(UnorderedBoundEncodingABC):
     _GENERALITY_LB_INCL = 0
     _INTERVAL_CLS = RealInterval
 
-    def __init__(self, obs_space):
+    def __init__(self, obs_space, use_fast_approx_matching):
         assert isinstance(obs_space, RealObsSpace)
-        super().__init__(obs_space)
+        super().__init__(obs_space, use_fast_approx_matching)
 
     def _gen_covering_alleles(self, obs_compt, dim):
         # r_0 interpreted as fraction of dim span to draw uniform random noise

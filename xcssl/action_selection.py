@@ -44,3 +44,8 @@ class FixedEpsilonGreedy(ActionSelectionStrategyABC):
             return get_rng().choice(self._action_space)
         else:
             return greedy_action_selection(prediction_arr)
+
+
+class RandomActionSelection(ActionSelectionStrategyABC):
+    def __call__(self, prediction_arr, time_step=None):
+        return get_rng().choice(self._action_space)

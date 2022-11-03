@@ -61,7 +61,8 @@ class RealObsSpaceBuilder(ObsSpaceBuilderABC):
 
 
 def make_binary_obs_space(num_dims):
-    """Binary obs space special case of integer one where each dim only 0/1"""
+    """Binary obs space is special case of integer one where each dim only
+    0/1"""
     builder = IntegerObsSpaceBuilder()
     for i in range(num_dims):
         builder.add_dim(IntegerDimension(lower=0, upper=1, name=f"bit_{i}"))
