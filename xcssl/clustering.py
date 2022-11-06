@@ -27,6 +27,12 @@ class ConditionClustering:
 
         self._M = self._init_medoid_count_map(self._clusterings)
 
+        self._N = self._init_predictee_nearest_medoid_map(
+            self._C, self._lsh_key_maps, self._dist_mat, self._clusterings,
+            self._M)
+
+        assert len(self._M) + len(self._N) == len(self._C)
+
     def _init_lsh(self, encoding, p, b):
         # TODO make polymorphic?
         lsh_cls = None
@@ -59,7 +65,7 @@ class ConditionClustering:
     def _gen_lsh_key_maps(self, lsh, C, b):
         """Generates the LSH hash/key for each phenotype in C, for all b bands
         used by the hasher."""
-        # one map (dict) for each band
+        # one map for each band, each map storing phenotype -> lsh key
         key_maps = [{} for _ in range(b)]
 
         for phenotype in C.keys():
@@ -112,6 +118,36 @@ class ConditionClustering:
                     medoid_count_map[medoid] = 1
 
         return medoid_count_map
+
+    def _init_predictee_nearest_medoid_map(self, C, lsh_key_maps, dist_mat,
+                                           clusterings, M):
+        predictee_nm_map = {}
+        predictees = set(C.keys()) - set(M.keys())
+
+        b = len(clusterings)
+
+        for predictee in predictees:
+            medoid_dist_tuples = []
+
+            for band_idx in range(b):
+
+                lsh_key = lsh_key_maps[band_idx][predictee]
+                cluster = clusterings[band_idx][lsh_key]
+
+                medoid = cluster.medoid
+                dist = dist_mat.query(predictee, medoid)
+
+                medoid_dist_tuples.append((medoid, dist))
+
+            # sort by dist. ascending
+            sorted_medoid_dist_tuples = sorted(medoid_dist_tuples,
+                                               key=lambda tup: tup[1],
+                                               reverse=False)
+
+            assert len(sorted_medoid_dist_tuples) == b
+            predictee_nm_map[predictee] = sorted_medoid_dist_tuples
+
+        return predictee_nm_map
 
 
 class DistMat:
@@ -183,6 +219,8 @@ class Cluster:
                 if dist_sum < medoid_dist_sum:
                     medoid = phenotype_a
                     medoid_dist_sum = dist_sum
+
+        assert medoid is not None
 
         return (dist_sums, medoid)
 
