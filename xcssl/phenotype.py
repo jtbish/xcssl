@@ -1,4 +1,5 @@
 import abc
+import numpy as np
 
 
 def make_vectorised_phenotype(encoding, vanilla_phenotype):
@@ -46,6 +47,11 @@ class VectorisedPhenotype(PhenotypeABC):
     @property
     def vec(self):
         return self._vec
+
+    def __eq__(self, other):
+        """Equality can be done faster for VectorisedPhenotype by comparing
+        vecs."""
+        return np.array_equal(self._vec, other._vec)
 
     def __hash__(self):
         return self._hash
