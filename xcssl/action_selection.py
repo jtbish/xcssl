@@ -1,4 +1,3 @@
-import abc
 from collections import OrderedDict
 from enum import Enum
 
@@ -8,12 +7,19 @@ from .rng import get_rng
 NULL_ACTION = -1
 
 ActionSelectionModes = Enum("ActionSelectionModes", ["explore", "exploit"])
-ActionSelectionModesChoice = list(iter(ActionSelectionModes))
 
 
 def choose_action_selection_mode():
-    # 50/50 chance of either explore/exploit for each step
-    return get_rng().choice(ActionSelectionModesChoice)
+    if get_rng().random() < get_hp("p_exp"):
+        return ActionSelectionModes.explore
+    else:
+        return ActionSelectionModes.exploit
+
+
+def random_action_selection(prediction_arr):
+    # random action from non-null actions reprd in pred arr
+    prediction_arr = filter_null_prediction_arr_entries(prediction_arr)
+    return get_rng().choice(list(prediction_arr.keys()))
 
 
 def greedy_action_selection(prediction_arr):
@@ -25,27 +31,3 @@ def filter_null_prediction_arr_entries(prediction_arr):
     return OrderedDict(
         {a: p
          for (a, p) in prediction_arr.items() if p is not None})
-
-
-class ActionSelectionStrategyABC(metaclass=abc.ABCMeta):
-    def __init__(self, action_space):
-        self._action_space = action_space
-
-    @abc.abstractmethod
-    def __call__(self, prediction_arr, time_step=None):
-        raise NotImplementedError
-
-
-class FixedEpsilonGreedy(ActionSelectionStrategyABC):
-    def __call__(self, prediction_arr, time_step=None):
-        epsilon = get_hp("p_explr")
-        should_explore = get_rng().random() < epsilon
-        if should_explore:
-            return get_rng().choice(self._action_space)
-        else:
-            return greedy_action_selection(prediction_arr)
-
-
-class RandomActionSelection(ActionSelectionStrategyABC):
-    def __call__(self, prediction_arr, time_step=None):
-        return get_rng().choice(self._action_space)

@@ -2,12 +2,6 @@ import abc
 import numpy as np
 
 
-def make_vectorised_phenotype(encoding, vanilla_phenotype):
-    elems = vanilla_phenotype.elems
-    phenotype_vec = encoding.gen_phenotype_vec(elems)
-    return VectorisedPhenotype(elems, phenotype_vec)
-
-
 class PhenotypeABC(metaclass=abc.ABCMeta):
     def __init__(self, elems):
         self._elems = elems

@@ -1,5 +1,7 @@
 import abc
 
+from .phenotype import VanillaPhenotype, VectorisedPhenotype
+
 TERNARY_HASH = "#"
 
 
@@ -26,6 +28,16 @@ class ConditionABC(metaclass=abc.ABCMeta):
 
     def does_match(self, obs):
         return self._encoding.does_phenotype_match(self._phenotype, obs)
+
+    def vectorise_phenotype(self):
+        """Converts the current VanillaPhenotype of this condition to a
+        VectorisedPhenotype."""
+        assert isinstance(self._phenotype, VanillaPhenotype)
+
+        elems = self._phenotype.elems
+        phenotype_vec = \
+            self._encoding.gen_phenotype_vec(elems)
+        self._phenotype = VectorisedPhenotype(elems, phenotype_vec)
 
     def __eq__(self, other):
         return self.phenotype == other.phenotype

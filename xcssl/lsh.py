@@ -9,11 +9,23 @@ from .rng import get_rng
 class LocalitySensitiveHasherABC(metaclass=abc.ABCMeta):
     def __init__(self, d, p, b):
         self._d = d
-        assert p <= self._d
+        assert p < self._d
         self._p = p
         self._b = b
 
         self._bands = self._init_bands(self._d, self._p, self._b)
+
+    @property
+    def d(self):
+        return self._d
+
+    @property
+    def p(self):
+        return self._p
+
+    @property
+    def b(self):
+        return self._b
 
     @abc.abstractmethod
     def _init_bands(self, d, p, b):
@@ -29,7 +41,7 @@ class HammingLSH(LocalitySensitiveHasherABC):
         def _n_choose_k(n, k):
             return int(fact(n) / (fact(k) * fact(n - k)))
 
-        assert p <= d
+        assert p < d
         # a hash func. chooses p dims from possible d
         num_possible_hash_funcs = _n_choose_k(n=d, k=p)
 

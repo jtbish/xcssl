@@ -5,15 +5,16 @@ import numpy as np
 from .condition import TERNARY_HASH, IntervalCondition, TernaryCondition
 from .hyperparams import get_hyperparam as get_hp
 from .interval import IntegerInterval, RealInterval
+from .lsh import EuclideanLSH, HammingLSH
 from .obs_space import IntegerObsSpace, RealObsSpace
 from .phenotype import VanillaPhenotype, VectorisedPhenotype
 from .rng import get_rng
 
 
 class EncodingABC(metaclass=abc.ABCMeta):
-    def __init__(self, obs_space, use_fast_approx_matching):
+    def __init__(self, obs_space):
         self._obs_space = obs_space
-        self._use_fast_approx_matching = use_fast_approx_matching
+        self._vectorise_phenotypes = False
 
     @property
     def obs_space(self):
@@ -24,11 +25,19 @@ class EncodingABC(metaclass=abc.ABCMeta):
 
     def decode(self, cond_alleles):
         phenotype_elems = self._decode(cond_alleles)
-        if not self._use_fast_approx_matching:
+        if not self._vectorise_phenotypes:
             return VanillaPhenotype(phenotype_elems)
         else:
             phenotype_vec = self.gen_phenotype_vec(phenotype_elems)
             return VectorisedPhenotype(phenotype_elems, phenotype_vec)
+
+    def make_lsh(self):
+        d = self.calc_num_phenotype_vec_dims()
+        return self._make_lsh(d)
+
+    def enable_phenotype_vectorisation(self):
+        assert not self._vectorise_phenotypes
+        self._vectorise_phenotypes = True
 
     @abc.abstractmethod
     def gen_covering_condition(self, obs):
@@ -64,17 +73,21 @@ class EncodingABC(metaclass=abc.ABCMeta):
     def distance_between(self, phenotype_vec_a, phenotype_vec_b):
         raise NotImplementedError
 
+    @abc.abstractmethod
+    def _make_lsh(self, d):
+        raise NotImplementedError
+
 
 class TernaryEncoding(EncodingABC):
     _COND_CLS = TernaryCondition
 
-    def __init__(self, obs_space, use_fast_approx_matching):
+    def __init__(self, obs_space):
         assert isinstance(obs_space, IntegerObsSpace)
         # check is actually binary
         for dim in obs_space.dims:
             assert dim.lower == 0
             assert dim.upper == 1
-        super().__init__(obs_space, use_fast_approx_matching)
+        super().__init__(obs_space)
 
     def gen_covering_condition(self, obs):
         num_alleles = len(self._obs_space)
@@ -142,6 +155,11 @@ class TernaryEncoding(EncodingABC):
         """Hamming dist."""
         return sum(e_a != e_b
                    for (e_a, e_b) in zip(phenotype_vec_a, phenotype_vec_b))
+
+    def _make_lsh(self, d):
+        p = get_hp("lsh_num_projs_per_band")
+        b = get_hp("lsh_num_bands")
+        return HammingLSH(d, p, b)
 
 
 class UnorderedBoundEncodingABC(EncodingABC, metaclass=abc.ABCMeta):
@@ -227,9 +245,9 @@ class IntegerUnorderedBoundEncoding(UnorderedBoundEncodingABC):
     _GENERALITY_LB_EXCL = 0
     _INTERVAL_CLS = IntegerInterval
 
-    def __init__(self, obs_space, use_fast_approx_matching):
+    def __init__(self, obs_space):
         assert isinstance(obs_space, IntegerObsSpace)
-        super().__init__(obs_space, use_fast_approx_matching)
+        super().__init__(obs_space)
 
     def _gen_covering_alleles(self, obs_compt, dim):
         r_nought = get_hp("r_nought")
@@ -256,14 +274,17 @@ class IntegerUnorderedBoundEncoding(UnorderedBoundEncodingABC):
         # integer ~ [1, m_0]
         return get_rng().randint(low=1, high=(get_hp("m_nought") + 1))
 
+    def _make_lsh(self, d):
+        raise NotImplementedError
+
 
 class RealUnorderedBoundEncoding(UnorderedBoundEncodingABC):
     _GENERALITY_LB_INCL = 0
     _INTERVAL_CLS = RealInterval
 
-    def __init__(self, obs_space, use_fast_approx_matching):
+    def __init__(self, obs_space):
         assert isinstance(obs_space, RealObsSpace)
-        super().__init__(obs_space, use_fast_approx_matching)
+        super().__init__(obs_space)
 
     def _gen_covering_alleles(self, obs_compt, dim):
         # r_0 interpreted as fraction of dim span to draw uniform random noise
@@ -294,3 +315,6 @@ class RealUnorderedBoundEncoding(UnorderedBoundEncodingABC):
         assert 0.0 < m_nought <= 1.0
         mut_high = (m_nought * dim.span)
         return get_rng().uniform(low=0, high=mut_high)
+
+    def _make_lsh(self, d):
+        raise NotImplementedError

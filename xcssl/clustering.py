@@ -1,21 +1,14 @@
-from .encoding import (IntegerUnorderedBoundEncoding,
-                       RealUnorderedBoundEncoding, TernaryEncoding)
-from .lsh import EuclideanLSH, HammingLSH
-
 _MIN_NUM_PROJS_PER_BAND = 1
 _MIN_NUM_BANDS = 1
 
 
 class ConditionClustering:
-    def __init__(self, encoding, phenotypes, num_projs_per_band, num_bands):
+    def __init__(self, encoding, phenotypes, lsh):
         self._encoding = encoding
 
-        assert num_projs_per_band >= _MIN_NUM_PROJS_PER_BAND
-        self._p = num_projs_per_band
-        assert num_bands >= _MIN_NUM_BANDS
-        self._b = num_bands
+        self._lsh = lsh
+        self._b = lsh.b
 
-        self._lsh = self._init_lsh(self._encoding, self._p, self._b)
         self._C = self._init_phenotype_count_map(phenotypes)
 
         self._lsh_key_maps = self._gen_lsh_key_maps(self._lsh, self._C,
@@ -32,24 +25,6 @@ class ConditionClustering:
             self._M)
 
         assert len(self._M) + len(self._N) == len(self._C)
-
-    def _init_lsh(self, encoding, p, b):
-        # TODO make polymorphic?
-        lsh_cls = None
-
-        if isinstance(encoding, TernaryEncoding):
-            lsh_cls = HammingLSH
-        elif isinstance(encoding, IntegerUnorderedBoundEncoding):
-            lsh_cls = HammingLSH
-        elif isinstance(encoding, RealUnorderedBoundEncoding):
-            lsh_cls = EuclideanLSH
-        else:
-            assert False
-
-        assert lsh_cls is not None
-
-        d = encoding.calc_num_phenotype_vec_dims()
-        return lsh_cls(d, p, b)
 
     def _init_phenotype_count_map(self, phenotypes):
         phenotype_count_map = {}
@@ -139,7 +114,7 @@ class ConditionClustering:
 
                 medoid_dist_tuples.append((medoid, dist))
 
-            # sort by dist. ascending
+            # sort by dist. ascending so nearest medoid is first in list
             sorted_medoid_dist_tuples = sorted(medoid_dist_tuples,
                                                key=lambda tup: tup[1],
                                                reverse=False)
@@ -148,6 +123,23 @@ class ConditionClustering:
             predictee_nm_map[predictee] = sorted_medoid_dist_tuples
 
         return predictee_nm_map
+
+    def gen_phenotype_matching_map(self, obs):
+        # first, exhaustively match all the medoids
+        medoid_matching_map = {
+            medoid: self._encoding.does_phenotype_match(medoid, obs)
+            for medoid in self._M.keys()
+        }
+
+        # then, do NN prediction for other predictee phenotypes
+        predictee_matching_map = {}
+        for (predictee, medoid_dist_tuples) in self._N.items():
+            nearest_medoid = medoid_dist_tuples[0][0]
+            predictee_matching_map[predictee] = \
+                medoid_matching_map[nearest_medoid]
+
+        # merge both maps to make the overall result
+        return {**medoid_matching_map, **predictee_matching_map}
 
 
 class DistMat:

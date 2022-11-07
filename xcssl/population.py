@@ -1,27 +1,12 @@
 import abc
-import logging
 
 from .clustering import ConditionClustering
-from .constants import MIN_TIME_STEP
-from .hyperparams import get_hyperparam as get_hp
 
 
 class PopulationABC(metaclass=abc.ABCMeta):
     """Population is just a list of macroclassifiers with tracking of the number of
     microclassifiers, in order to avoid having to calculate this number on the
     fly repeatedly and waste time."""
-    def __init__(self):
-        self._clfrs = []
-        self._num_micros = 0
-        self._ops_history = {
-            "covering": 0,
-            "absorption": 0,
-            "insertion": 0,
-            "deletion": 0,
-            "ga_subsumption": 0,
-            "as_subsumption": 0
-        }
-
     @property
     def num_macros(self):
         return len(self._clfrs)
@@ -42,10 +27,6 @@ class PopulationABC(metaclass=abc.ABCMeta):
         # delta can be neg. (obviously), but op. counts are pos.
         self._ops_history[op] += abs(delta)
 
-    def _gen_match_set_exhaustive(self, obs):
-        """Match all macroclassifiers in fully accurate & exhaustive fashion"""
-        return [clfr for clfr in self._clfrs if clfr.does_match(obs)]
-
     def __iter__(self):
         return iter(self._clfrs)
 
@@ -64,10 +45,26 @@ class PopulationABC(metaclass=abc.ABCMeta):
     def gen_match_set(self, obs):
         raise NotImplementedError
 
+    @abc.abstractmethod
+    def gen_matching_trace(self, obs):
+        raise NotImplementedError
+
 
 class VanillaPopulation(PopulationABC):
     """Default-style population that does not use condition clustering and
     perfoms fully accurate and exhuastive matching."""
+    def __init__(self):
+        self._clfrs = []
+        self._num_micros = 0
+        self._ops_history = {
+            "covering": 0,
+            "absorption": 0,
+            "insertion": 0,
+            "deletion": 0,
+            "ga_subsumption": 0,
+            "as_subsumption": 0
+        }
+
     def add_new(self, clfr, op, time_step=None):
         self._clfrs.append(clfr)
         self._num_micros += clfr.numerosity
@@ -82,8 +79,59 @@ class VanillaPopulation(PopulationABC):
             self._ops_history[op] += clfr.numerosity
 
     def gen_match_set(self, obs):
-        return self._gen_match_set_exhaustive(obs)
+        """Full and exhaustive matching procedure: match each
+        macroclassifier."""
+        return [clfr for clfr in self._clfrs if clfr.does_match(obs)]
+
+    def gen_matching_trace(self, obs):
+        return [clfr.does_match(obs) for clfr in self._clfrs]
 
 
 class FastApproxMatchingPopulation(PopulationABC):
-    pass
+    """Population that use a ConditionClustering to perform fast approximate
+    matching."""
+    def __init__(self, vanilla_pop, encoding, lsh):
+        """FAM Population needs to be inited from existing
+        VanillaPopulation."""
+
+        self._clfrs = vanilla_pop._clfrs
+        self._num_micros = vanilla_pop._num_micros
+        self._ops_history = vanilla_pop._ops_history
+
+        # make the condition clustering
+        # first, vectorise all the condition phenotype in the pop
+        # so they can be hashed by lsh
+        self._vectorise_clfr_phenotypes(self._clfrs)
+        self._condition_clustering = ConditionClustering(
+            encoding=encoding,
+            phenotypes=[clfr.condition.phenotype for clfr in self._clfrs],
+            lsh=lsh)
+
+    def _vectorise_clfr_phenotypes(self, clfrs):
+        """Update phenotypes of clfr conditions in place with vectorised
+        variants."""
+        for clfr in clfrs:
+            clfr.condition.vectorise_phenotype()
+
+    def add_new(self, clfr, op, time_step=None):
+        raise NotImplementedError
+
+    def remove(self, clfr, op=None):
+        raise NotImplementedError
+
+    def gen_match_set(self, obs):
+        phenotype_matching_map = \
+            self._condition_clustering.gen_phenotype_matching_map(obs)
+        match_set = [
+            clfr for clfr in self._clfrs
+            if phenotype_matching_map[clfr.condition.phenotype]
+        ]
+        return match_set
+
+    def gen_matching_trace(self, obs):
+        phenotype_matching_map = \
+            self._condition_clustering.gen_phenotype_matching_map(obs)
+        return [
+            phenotype_matching_map[clfr.condition.phenotype]
+            for clfr in self._clfrs
+        ]
