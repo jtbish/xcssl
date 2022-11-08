@@ -293,7 +293,7 @@ class ConditionClustering:
         except KeyError:
             pass
 
-        # iii) dist mat
+        # iii) dist mat entries
         other_phenotypes = (set(self._phenotype_count_map.keys()) -
                             {phenotype})
         for other_phenotype in other_phenotypes:
