@@ -2,9 +2,6 @@ from collections import namedtuple
 
 MedoidChange = namedtuple("MedoidChange", ["old", "new"])
 
-_MIN_NUM_PROJS_PER_BAND = 1
-_MIN_NUM_BANDS = 1
-
 
 class ConditionClustering:
     def __init__(self, encoding, phenotypes, lsh):
@@ -141,29 +138,29 @@ class ConditionClustering:
 
         return nearest_medoid
 
-    def try_add_phenotype(self, phenotype):
-        # first, determine if phenotype is actually new
+    def try_add_phenotype(self, addee):
+        # first, determine if addee is actually new
         try:
-            self._phenotype_count_map[phenotype] += 1
+            self._phenotype_count_map[addee] += 1
         except KeyError:
-            self._phenotype_count_map[phenotype] = 1
+            self._phenotype_count_map[addee] = 1
             is_new = True
         else:
             is_new = False
 
         if is_new:
-            self._add_phenotype(phenotype)
+            self._add_phenotype(addee)
 
-    def _add_phenotype(self, phenotype):
-        # 1: calc and store lsh keys for phenotype
-        vec = phenotype.vec
+    def _add_phenotype(self, addee):
+        # 1: calc and store lsh keys for addee
+        vec = addee.vec
         lsh_keys = []
         for band_idx in range(self._num_bands):
             lsh_key = self._lsh.hash(vec, band_idx)
-            self._lsh_key_maps[band_idx][phenotype] = lsh_key
+            self._lsh_key_maps[band_idx][addee] = lsh_key
             lsh_keys.append(lsh_key)
 
-        # 2: add the phenotype to a cluster in each band,
+        # 2: add the addee to a cluster in each band,
         # recording the medoid changes that happen as a result
         medoid_changes = []
 
@@ -172,15 +169,15 @@ class ConditionClustering:
                 # try access existing cluster
                 cluster = self._clusterings[band_idx][lsh_key]
             except KeyError:
-                # new cluster needed, consisting solely of new phenotype
-                cluster = Cluster(phenotypes=[phenotype],
+                # new cluster needed, consisting solely of addee
+                cluster = Cluster(phenotypes=[addee],
                                   encoding=self._encoding,
                                   dist_mat=self._dist_mat)
                 # no old medoid, new medoid is sole phenotype in cluster
-                medoid_changes.append(MedoidChange(old=None, new=phenotype))
+                medoid_changes.append(MedoidChange(old=None, new=addee))
             else:
                 # add to existing cluster
-                medoid_change = cluster.add(phenotype, self._encoding,
+                medoid_change = cluster.add(addee, self._encoding,
                                             self._dist_mat)
                 medoid_changes.append(medoid_change)
 
@@ -218,45 +215,51 @@ class ConditionClustering:
             del self._medoid_count_map[phenotype]
             self._predictee_set.add(phenotype)
 
+        # 5: if addee was not determined to be a medoid, it needs to be
+        # a predictee
+        if addee not in self._medoid_count_map:
+            self._predictee_set.add(addee)
+
         assert (len(self._medoid_count_map) + len(self._predictee_set)) == len(
             self._phenotype_count_map)
 
-    def try_remove_phenotype(self, phenotype):
+    def try_remove_phenotype(self, removee):
         # first, determine if removal actually necessary
-        count = self._phenotype_count_map[phenotype]
+        count = self._phenotype_count_map[removee]
         assert count >= 1
 
         if count == 1:
+            del self._phenotype_count_map[removee]
             do_removal = True
         else:
-            self._phenotype_count_map[phenotype] = (count - 1)
+            self._phenotype_count_map[removee] = (count - 1)
             do_removal = False
 
         if do_removal:
-            self._remove_phenotype(phenotype)
+            self._remove_phenotype(removee)
 
-    def _remove_phenotype(self, phenotype):
-        # 1: remove the phenotype from each cluster in each band,
+    def _remove_phenotype(self, removee):
+        # 1: remove the removee from each cluster in each band,
         # recording the medoid changes that happen as a result
         medoid_changes = []
 
         for band_idx in range(self._num_bands):
-            lsh_key = self._lsh_key_maps[band_idx][phenotype]
+            lsh_key = self._lsh_key_maps[band_idx][removee]
             cluster = self._clusterings[band_idx][lsh_key]
 
-            assert phenotype in cluster.phenotype_set
+            assert removee in cluster.phenotype_set
 
             assert len(cluster) >= 1
             if len(cluster) == 1:
 
-                # remove the cluster entirely since the phenotype to remove is
+                # remove the cluster entirely since the removee is
                 # the only member
                 del self._clusterings[band_idx][lsh_key]
-                medoid_changes.append(MedoidChange(old=phenotype, new=None))
+                medoid_changes.append(MedoidChange(old=removee, new=None))
 
             else:
 
-                medoid_change = cluster.remove(phenotype, self._dist_mat)
+                medoid_change = cluster.remove(removee, self._dist_mat)
                 medoid_changes.append(medoid_change)
 
         assert len(medoid_changes) == self._num_bands
@@ -281,32 +284,28 @@ class ConditionClustering:
                     self._medoid_count_map[new_medoid] = 1
 
         # 3: remove all other traces of the phenotype
+        # NOTE: phenotype count map already handled in caller
         # i) predictee set
         try:
-            self._predictee_set.remove(phenotype)
+            self._predictee_set.remove(removee)
         except KeyError:
             pass
 
         # ii) medoid count map
         try:
-            del self._medoid_count_map[phenotype]
+            del self._medoid_count_map[removee]
         except KeyError:
             pass
 
         # iii) dist mat entries
-        other_phenotypes = (set(self._phenotype_count_map.keys()) -
-                            {phenotype})
-        for other_phenotype in other_phenotypes:
-            self._dist_mat.remove_single_entry(other_phenotype, phenotype)
-        self._dist_mat.remove_entire_row(phenotype)
+        for phenotype in self._phenotype_count_map.keys():
+            self._dist_mat.remove_single_entry(phenotype, removee)
+        self._dist_mat.remove_entire_row(removee)
         assert (self._dist_mat.size % 2 == 0)
 
         # iv) lsh key maps
         for band_idx in range(self._num_bands):
-            del self._lsh_key_maps[band_idx][phenotype]
-
-        # v) phenotype count map
-        del self._phenotype_count_map[phenotype]
+            del self._lsh_key_maps[band_idx][removee]
 
         # 4: if any medoids now have count == 0, then they need to be removed
         # from medoid count map and added as predictees
@@ -414,22 +413,22 @@ class Cluster:
     def medoid(self):
         return self._medoid
 
-    def add(self, new_phenotype, encoding, dist_mat):
+    def add(self, addee, encoding, dist_mat):
         old_medoid = self._medoid
 
         new_medoid = None
         new_medoid_dist_sum = None
 
-        new_phenotype_dist_sum = 0
+        addee_dist_sum = 0
 
         for existing_phenotype in self._phenotype_set:
             # calc dist between existing and new phenotype
             try:
-                dist = dist_mat.query(new_phenotype, existing_phenotype)
+                dist = dist_mat.query(addee, existing_phenotype)
             except KeyError:
-                dist = encoding.distance_between(new_phenotype.vec,
+                dist = encoding.distance_between(addee.vec,
                                                  existing_phenotype.vec)
-                dist_mat.add_pair(new_phenotype, existing_phenotype, dist)
+                dist_mat.add_pair(addee, existing_phenotype, dist)
 
             # update the dist_sum for this existing phenotype
             updated_dist_sum = (self._dist_sums[existing_phenotype] + dist)
@@ -446,28 +445,26 @@ class Cluster:
                     new_medoid_dist_sum = updated_dist_sum
 
             # accumulate dist_sum for new phenotype
-            new_phenotype_dist_sum += dist
+            addee_dist_sum += dist
 
         assert new_medoid is not None
 
         # store the new phenotype and its dist sum
-        self._phenotype_set.add(new_phenotype)
-        self._dist_sums[new_phenotype] = new_phenotype_dist_sum
+        self._phenotype_set.add(addee)
+        self._dist_sums[addee] = addee_dist_sum
         assert len(self._phenotype_set) == len(self._dist_sums)
 
         # lastly, check if (now complete) dist_sum for new phenotype makes it
         # the new medoid
-        if new_phenotype_dist_sum < new_medoid_dist_sum:
-            new_medoid = new_phenotype
+        if addee_dist_sum < new_medoid_dist_sum:
+            new_medoid = addee
 
         # update the stored medoid, and return the change to the caller
         self._medoid = new_medoid
 
         return MedoidChange(old=old_medoid, new=new_medoid)
 
-    def remove(self, phenotype, dist_mat):
-        removee = phenotype
-
+    def remove(self, removee, dist_mat):
         old_medoid = self._medoid
 
         new_medoid = None

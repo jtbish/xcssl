@@ -5,6 +5,9 @@ import numpy as np
 
 from .rng import get_rng
 
+_MIN_NUM_PROJS_PER_BAND = 1
+_MIN_NUM_BANDS = 1
+
 
 class LocalitySensitiveHasherABC(metaclass=abc.ABCMeta):
     def __init__(self, d, p, b):
