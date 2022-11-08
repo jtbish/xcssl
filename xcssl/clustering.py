@@ -227,7 +227,6 @@ class ConditionClustering:
         assert count >= 1
 
         if count == 1:
-            del self._phenotype_count_map[phenotype]
             do_removal = True
         else:
             self._phenotype_count_map[phenotype] = (count - 1)
@@ -306,7 +305,8 @@ class ConditionClustering:
         for band_idx in range(self._num_bands):
             del self._lsh_key_maps[band_idx][phenotype]
 
-        # v) phenotype count map already taken care of in caller
+        # v) phenotype count map
+        del self._phenotype_count_map[phenotype]
 
         # 4: if any medoids now have count == 0, then they need to be removed
         # from medoid count map and added as predictees
