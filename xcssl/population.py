@@ -27,19 +27,24 @@ class PopulationABC(metaclass=abc.ABCMeta):
         # delta can be neg. (obviously), but op. counts are pos.
         self._ops_history[op] += abs(delta)
 
+    def add_new(self, clfr, op, time_step=None):
+        self._clfrs.append(clfr)
+        self._num_micros += clfr.numerosity
+        assert op in ("covering", "insertion")
+        self._ops_history[op] += clfr.numerosity
+
+    def remove(self, clfr, op=None):
+        self._clfrs.remove(clfr)
+        self._num_micros -= clfr.numerosity
+        if op is not None:
+            assert op == "deletion"
+            self._ops_history[op] += clfr.numerosity
+
     def __iter__(self):
         return iter(self._clfrs)
 
     def __getitem__(self, idx):
         return self._clfrs[idx]
-
-    @abc.abstractmethod
-    def add_new(self, clfr, op, time_step=None):
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def remove(self, clfr, op=None):
-        raise NotImplementedError
 
     @abc.abstractmethod
     def gen_match_set(self, obs):
@@ -64,19 +69,6 @@ class VanillaPopulation(PopulationABC):
             "ga_subsumption": 0,
             "as_subsumption": 0
         }
-
-    def add_new(self, clfr, op, time_step=None):
-        self._clfrs.append(clfr)
-        self._num_micros += clfr.numerosity
-        assert op in ("covering", "insertion")
-        self._ops_history[op] += clfr.numerosity
-
-    def remove(self, clfr, op=None):
-        self._clfrs.remove(clfr)
-        self._num_micros -= clfr.numerosity
-        if op is not None:
-            assert op == "deletion"
-            self._ops_history[op] += clfr.numerosity
 
     def gen_match_set(self, obs):
         """Full and exhaustive matching procedure: match each
@@ -114,10 +106,15 @@ class FastApproxMatchingPopulation(PopulationABC):
             clfr.condition.vectorise_phenotype()
 
     def add_new(self, clfr, op, time_step=None):
-        raise NotImplementedError
+        super().add_new(clfr, op, time_step)
+
+        self._condition_clustering.try_add_phenotype(clfr.condition.phenotype)
 
     def remove(self, clfr, op=None):
-        raise NotImplementedError
+        super().remove(clfr, op)
+
+        self._condition_clustering.try_remove_phenotype(
+            clfr.condition.phenotype)
 
     def gen_match_set(self, obs):
         phenotype_matching_map = \

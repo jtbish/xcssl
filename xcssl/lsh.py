@@ -37,17 +37,17 @@ class LocalitySensitiveHasherABC(metaclass=abc.ABCMeta):
 
 
 class HammingLSH(LocalitySensitiveHasherABC):
-    def __init__(self, d, p, b):
+    def __init__(self, num_dims, num_projs_per_band, num_bands):
         def _n_choose_k(n, k):
             return int(fact(n) / (fact(k) * fact(n - k)))
 
-        assert p < d
+        assert num_projs_per_band < num_dims
         # a hash func. chooses p dims from possible d
-        num_possible_hash_funcs = _n_choose_k(n=d, k=p)
+        num_possible_hash_funcs = _n_choose_k(n=num_dims, k=num_projs_per_band)
 
-        if num_possible_hash_funcs <= b:
+        if num_possible_hash_funcs <= num_bands:
             raise ValueError("Num possible hash functions for Hamming LSH is "
-                             "<= the number of bands b specified.")
+                             "<= the number of bands specified.")
 
         super().__init__(d, p, b)
 
