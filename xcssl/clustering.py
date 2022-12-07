@@ -12,6 +12,9 @@ class PhenotypeClustering:
         self._clustering = self._form_clustering(self._lsh_key_map,
                                                  self._encoding)
 
+        self._num_additions = 0
+        self._num_removals = 0
+
     def _init_phenotype_count_map(self, phenotypes):
         phenotype_count_map = {}
 
@@ -68,7 +71,9 @@ class PhenotypeClustering:
             do_add = False
 
         if do_add:
+
             self._add_phenotype(phenotype)
+            self._num_additions += 1
 
     def _add_phenotype(self, phenotype):
 
@@ -90,7 +95,9 @@ class PhenotypeClustering:
         self._phenotype_count_map[phenotype] = count
 
         if count == 0:
+
             self._remove_phenotype(phenotype)
+            self._num_removals += 1
 
     def _remove_phenotype(self, phenotype):
 
@@ -187,3 +194,7 @@ class Cluster:
 
         if self._num_phenotypes == 1:
             self._subsumer_phenotype = None
+        else:
+            # re-calc the subsumer to make it as "tight" as possible
+            self._subsumer_phenotype = encoding.make_subsumer_phenotype(
+                self._phenotypes)
