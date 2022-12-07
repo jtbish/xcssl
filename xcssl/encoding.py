@@ -25,6 +25,7 @@ class EncodingABC(metaclass=abc.ABCMeta):
 
     def decode(self, cond_alleles):
         phenotype_elems = self._decode(cond_alleles)
+
         if not self._vectorise_phenotypes:
             return VanillaPhenotype(phenotype_elems)
         else:
@@ -32,8 +33,8 @@ class EncodingABC(metaclass=abc.ABCMeta):
             return VectorisedPhenotype(phenotype_elems, phenotype_vec)
 
     def make_lsh(self):
-        d = self.calc_num_phenotype_vec_dims()
-        return self._make_lsh(d)
+        num_dims = self.calc_num_phenotype_vec_dims()
+        return self._make_lsh(num_dims)
 
     def enable_phenotype_vectorisation(self):
         assert not self._vectorise_phenotypes
@@ -49,7 +50,7 @@ class EncodingABC(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def calc_condition_generality(self, phenotype):
+    def calc_phenotype_generality(self, phenotype):
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -74,7 +75,20 @@ class EncodingABC(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def _make_lsh(self, d):
+    def does_subsume(self, phenotype_a, phenotype_b):
+        """Does phenotype_a subsume phenotype_b?"""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def make_subsumer_phenotype(self, phenotypes):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def expand_subsumer_phenotype(self, subsumer_phenotype, addee_phenotype):
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def _make_lsh(self, num_dims):
         raise NotImplementedError
 
 
@@ -107,7 +121,7 @@ class TernaryEncoding(EncodingABC):
         # genotype == phenotype
         return tuple(cond_alleles)
 
-    def calc_condition_generality(self, phenotype):
+    def calc_phenotype_generality(self, phenotype):
         """Number of don't care elems."""
         return phenotype.elems.count(TERNARY_HASH)
 
@@ -139,27 +153,78 @@ class TernaryEncoding(EncodingABC):
         for elem in phenotype_elems:
             # one-hot encoding of elem vals, hash counts as both 0 and 1
             if elem == 0:
-                val = [1, 0]
+                subvec = [1, 0]
             elif elem == 1:
-                val = [0, 1]
+                subvec = [0, 1]
             elif elem == TERNARY_HASH:
-                val = [1, 1]
+                subvec = [1, 1]
             else:
                 assert False
 
-            vec.extend(val)
+            vec.extend(subvec)
 
-        return np.asarray(vec, dtype=np.uint8)
+        return tuple(vec)
 
     def distance_between(self, phenotype_vec_a, phenotype_vec_b):
         """Hamming dist."""
-        return sum(e_a != e_b
-                   for (e_a, e_b) in zip(phenotype_vec_a, phenotype_vec_b))
+        return sum(a_elem != b_elem
+                   for (a_elem,
+                        b_elem) in zip(phenotype_vec_a, phenotype_vec_b))
 
-    def _make_lsh(self, d):
-        p = get_hp("lsh_num_projs_per_band")
-        b = get_hp("lsh_num_bands")
-        return HammingLSH(d, p, b)
+    def does_subsume(self, phenotype_a, phenotype_b):
+        for (a_elem, b_elem) in zip(phenotype_a, phenotype_b):
+            if (a_elem != TERNARY_HASH and a_elem != b_elem):
+                return False
+        return True
+
+    def make_subsumer_phenotype(self, phenotypes):
+        subsumer_elems = []
+
+        for dim_idx in range(0, len(self.obs_space)):
+
+            dim_elems = [phenotype[dim_idx] for phenotype in phenotypes]
+
+            if TERNARY_HASH in dim_elems:
+                subsumer_elems.append(TERNARY_HASH)
+            else:
+                if 1 not in dim_elems:
+                    # all zeroes
+                    subsumer_elems.append(0)
+
+                elif 0 not in dim_elems:
+                    # all ones
+                    subsumer_elems.append(1)
+
+                else:
+                    # some mixture of zeroes and ones
+                    subsumer_elems.append(TERNARY_HASH)
+
+        # doesn't need to be a vectorised phenotype
+        return VanillaPhenotype(subsumer_elems)
+
+    def expand_subsumer_phenotype(self, subsumer_phenotype, addee_phenotype):
+
+        new_subsumer_elems = []
+
+        for (s_elem, a_elem) in zip(subsumer_phenotype, addee_phenotype):
+
+            if s_elem != TERNARY_HASH:
+
+                if s_elem != a_elem:
+                    new_subsumer_elems.append(TERNARY_HASH)
+                else:
+                    new_subsumer_elems.append(s_elem)
+
+            else:
+
+                new_subsumer_elems.append(s_elem)
+
+        return VanillaPhenotype(new_subsumer_elems)
+
+    def _make_lsh(self, num_dims):
+        num_projs = get_hp("lsh_num_projs")
+        seed = get_hp("seed")
+        return HammingLSH(num_dims, num_projs, seed)
 
 
 class UnorderedBoundEncodingABC(EncodingABC, metaclass=abc.ABCMeta):
@@ -198,7 +263,7 @@ class UnorderedBoundEncodingABC(EncodingABC, metaclass=abc.ABCMeta):
         return phenotype
 
     @abc.abstractmethod
-    def calc_condition_generality(self, cond_intervals):
+    def calc_phenotype_generality(self, phenotype):
         raise NotImplementedError
 
     def mutate_condition_alleles(self, cond_alleles, obs=None):
@@ -240,6 +305,16 @@ class UnorderedBoundEncodingABC(EncodingABC, metaclass=abc.ABCMeta):
     def distance_between(self, phenotype_vec_a, phenotype_vec_b):
         raise NotImplementedError
 
+    def does_subsume(self, phenotype_a, phenotype_b):
+        for (a_interval, b_interval) in zip(phenotype_a, phenotype_b):
+            if not a_interval.does_subsume(b_interval):
+                return False
+        return True
+
+    @abc.abstractmethod
+    def make_subsumer_phenotype(self, phenotypes):
+        raise NotImplementedError
+
 
 class IntegerUnorderedBoundEncoding(UnorderedBoundEncodingABC):
     _GENERALITY_LB_EXCL = 0
@@ -258,10 +333,10 @@ class IntegerUnorderedBoundEncoding(UnorderedBoundEncodingABC):
         upper = min(upper, dim.upper)
         return (lower, upper)
 
-    def calc_condition_generality(self, phenotype):
+    def calc_phenotype_generality(self, phenotype):
         # condition generality calc as in
         # Wilson '00 Mining Oblique Data with XCS
-        cond_intervals = phenotype
+        cond_intervals = phenotype.elems
         numer = sum([interval.span for interval in cond_intervals])
         denom = sum([dim.span for dim in self._obs_space])
         generality = numer / denom
@@ -274,7 +349,7 @@ class IntegerUnorderedBoundEncoding(UnorderedBoundEncodingABC):
         # integer ~ [1, m_0]
         return get_rng().randint(low=1, high=(get_hp("m_nought") + 1))
 
-    def _make_lsh(self, d):
+    def _make_lsh(self, num_dims):
         raise NotImplementedError
 
 
@@ -298,8 +373,8 @@ class RealUnorderedBoundEncoding(UnorderedBoundEncodingABC):
         upper = min(upper, dim.upper)
         return (lower, upper)
 
-    def calc_condition_generality(self, phenotype):
-        cond_intervals = phenotype
+    def calc_phenotype_generality(self, phenotype):
+        cond_intervals = phenotype.elems
         numer = sum([interval.span for interval in cond_intervals])
         denom = sum([dim for dim in self._obs_space])
         generality = numer / denom
@@ -316,5 +391,5 @@ class RealUnorderedBoundEncoding(UnorderedBoundEncodingABC):
         mut_high = (m_nought * dim.span)
         return get_rng().uniform(low=0, high=mut_high)
 
-    def _make_lsh(self, d):
+    def _make_lsh(self, num_dims):
         raise NotImplementedError

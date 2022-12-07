@@ -1,6 +1,6 @@
 import abc
 
-from .clustering import ConditionClustering
+from .clustering import PhenotypeClustering
 
 
 class PopulationABC(metaclass=abc.ABCMeta):
@@ -56,7 +56,7 @@ class PopulationABC(metaclass=abc.ABCMeta):
 
 
 class VanillaPopulation(PopulationABC):
-    """Default-style population that does not use condition clustering and
+    """Default-style population that does not use phenotype clustering and
     perfoms fully accurate and exhuastive matching."""
     def __init__(self):
         self._clfrs = []
@@ -79,25 +79,27 @@ class VanillaPopulation(PopulationABC):
         return [clfr.does_match(obs) for clfr in self._clfrs]
 
 
-class FastApproxMatchingPopulation(PopulationABC):
-    """Population that use a ConditionClustering to perform fast approximate
+class FastMatchingPopulation(PopulationABC):
+    """Population that use a PhenotypeClustering to perform fast
     matching."""
     def __init__(self, vanilla_pop, encoding, lsh):
-        """FAM Population needs to be inited from existing
+        """FastMatchingPopulation needs to be inited from existing
         VanillaPopulation."""
+        assert isinstance(vanilla_pop, VanillaPopulation)
 
         self._clfrs = vanilla_pop._clfrs
         self._num_micros = vanilla_pop._num_micros
         self._ops_history = vanilla_pop._ops_history
 
-        # make the condition clustering
+        # make the phenotype clustering
         # first, vectorise all the condition phenotype in the pop
         # so they can be hashed by lsh
         self._vectorise_clfr_phenotypes(self._clfrs)
-        self._condition_clustering = ConditionClustering(
-            encoding=encoding,
-            phenotypes=[clfr.condition.phenotype for clfr in self._clfrs],
-            lsh=lsh)
+
+        self._clustering = PhenotypeClustering(
+            encoding,
+            lsh,
+            phenotypes=[clfr.condition.phenotype for clfr in self._clfrs])
 
     def _vectorise_clfr_phenotypes(self, clfrs):
         """Update phenotypes of clfr conditions in place with vectorised
@@ -108,26 +110,24 @@ class FastApproxMatchingPopulation(PopulationABC):
     def add_new(self, clfr, op, time_step=None):
         super().add_new(clfr, op, time_step)
 
-        self._condition_clustering.try_add_phenotype(clfr.condition.phenotype)
+        self._clustering.try_add_phenotype(clfr.condition.phenotype)
 
     def remove(self, clfr, op=None):
         super().remove(clfr, op)
 
-        self._condition_clustering.try_remove_phenotype(
-            clfr.condition.phenotype)
+        self._clustering.try_remove_phenotype(clfr.condition.phenotype)
 
     def gen_match_set(self, obs):
         phenotype_matching_map = \
-            self._condition_clustering.gen_phenotype_matching_map(obs)
-        match_set = [
+            self._clustering.gen_phenotype_matching_map(obs)
+        return [
             clfr for clfr in self._clfrs
             if phenotype_matching_map[clfr.condition.phenotype]
         ]
-        return match_set
 
     def gen_matching_trace(self, obs):
         phenotype_matching_map = \
-            self._condition_clustering.gen_phenotype_matching_map(obs)
+            self._clustering.gen_phenotype_matching_map(obs)
         return [
             phenotype_matching_map[clfr.condition.phenotype]
             for clfr in self._clfrs

@@ -1,10 +1,9 @@
 import abc
-import numpy as np
 
 
 class PhenotypeABC(metaclass=abc.ABCMeta):
     def __init__(self, elems):
-        self._elems = elems
+        self._elems = tuple(elems)
 
     @property
     def elems(self):
@@ -19,6 +18,9 @@ class PhenotypeABC(metaclass=abc.ABCMeta):
     def __iter__(self):
         return iter(self._elems)
 
+    def __getitem__(self, idx):
+        return self._elems[idx]
+
     def __len__(self):
         return len(self._elems)
 
@@ -28,24 +30,16 @@ class VanillaPhenotype(PhenotypeABC):
 
 
 class VectorisedPhenotype(PhenotypeABC):
-    """Phenotype for LSH with additional vectorised repr."""
+    """Phenotype for LSH, imbued with additional vectorised repr."""
     def __init__(self, elems, vec):
         super().__init__(elems)
         self._vec = vec
         # cache the hash value for faster set/dict operations
-        self._hash = self._calc_hash(self._vec)
-
-    def _calc_hash(self, vec):
-        return hash(tuple(vec))
+        self._hash = hash(self._elems)
 
     @property
     def vec(self):
         return self._vec
-
-    def __eq__(self, other):
-        """Equality can be done faster for VectorisedPhenotype by comparing
-        vecs."""
-        return np.array_equal(self._vec, other._vec)
 
     def __hash__(self):
         return self._hash

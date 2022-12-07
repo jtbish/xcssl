@@ -1,98 +1,73 @@
 import abc
-from math import factorial as fact
 
 import numpy as np
 
-from .rng import get_rng
+_MIN_NUM_PROJS = 1
 
-_MIN_NUM_PROJS_PER_BAND = 1
-_MIN_NUM_BANDS = 1
+
+class LSHKey:
+    """Wrapper over tuple for LSH keys to cache the hash value."""
+    def __init__(self, key_tup):
+        self._key_tup = key_tup
+        self._hash = hash(self._key_tup)
+
+    def __eq__(self, other):
+        return self._key_tup == other._key_tup
+
+    def __hash__(self):
+        return self._hash
 
 
 class LocalitySensitiveHasherABC(metaclass=abc.ABCMeta):
-    def __init__(self, d, p, b):
-        self._d = d
-        assert p < self._d
-        self._p = p
-        self._b = b
+    def __init__(self, num_dims, num_projs, seed):
+        self._num_dims = num_dims
+        # num_projs should be less than num_dims otherwise projecting into an
+        # equal or higher dimensional space than what was started with, which
+        # is weird
+        assert _MIN_NUM_PROJS <= num_projs < num_dims
+        self._num_projs = num_projs
 
-        self._bands = self._init_bands(self._d, self._p, self._b)
+        self._rng = np.random.RandomState(int(seed))
 
-    @property
-    def d(self):
-        return self._d
-
-    @property
-    def p(self):
-        return self._p
+        self._projector = self._init_projector(self._num_dims, self._num_projs,
+                                               self._rng)
 
     @property
-    def b(self):
-        return self._b
+    def num_dims(self):
+        return self._num_dims
+
+    @property
+    def num_projs(self):
+        return self._num_projs
 
     @abc.abstractmethod
-    def _init_bands(self, d, p, b):
+    def _init_projector(self, num_dims, num_projs, rng):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def hash(self, vec, band_idx):
+    def hash(self, vec):
         raise NotImplementedError
 
 
 class HammingLSH(LocalitySensitiveHasherABC):
-    def __init__(self, num_dims, num_projs_per_band, num_bands):
-        def _n_choose_k(n, k):
-            return int(fact(n) / (fact(k) * fact(n - k)))
+    def _init_projector(self, num_dims, num_projs, rng):
+        """For Hamming LSH, the projector is equal to the hash function, which
+        is simply a vector of length num_projs, specifying the (ordered)
+        indexes of the input vector to consider."""
 
-        assert num_projs_per_band < num_dims
-        # a hash func. chooses p dims from possible d
-        num_possible_hash_funcs = _n_choose_k(n=num_dims, k=num_projs_per_band)
+        to_sample = range(num_dims)
+        projector = rng.choice(a=to_sample, size=num_projs, replace=False)
+        projector = tuple(sorted(projector))
 
-        if num_possible_hash_funcs <= num_bands:
-            raise ValueError("Num possible hash functions for Hamming LSH is "
-                             "<= the number of bands specified.")
+        return projector
 
-        super().__init__(d, p, b)
-
-    def _init_bands(self, d, p, b):
-        """For Hamming LSH, each 'hash function' in a band is simply a vector
-        of length p (the number of projs), specifying the (ordered) indexes of
-        the input vector to consider."""
-        def _is_dup_hash_func(new_hash_func, bands):
-            for existing_hash_func in bands:
-                if np.array_equal(new_hash_func, existing_hash_func):
-                    return True
-            return False
-
-        bands = []
-        to_sample = range(d)
-
-        for _ in range(b):
-
-            is_valid_hash_func = False
-            while not is_valid_hash_func:
-                # sample p random idxs from possible range of [0, d-1]
-                hash_func = get_rng().choice(a=to_sample,
-                                             size=p,
-                                             replace=False)
-                # then order idxs
-                hash_func = np.sort(hash_func)
-
-                is_valid_hash_func = \
-                    not _is_dup_hash_func(hash_func, bands)
-
-            bands.append(hash_func)
-
-        return bands
-
-    def hash(self, vec, band_idx):
-        hash_func = self._bands[band_idx]
-        return tuple(vec[idx] for idx in hash_func)
+    def hash(self, vec):
+        return LSHKey(tuple(vec[idx] for idx in self._projector))
 
 
 class EuclideanLSH(LocalitySensitiveHasherABC):
-    def _init_bands(self, d, p, b):
+    def _init_projector(self, num_dims, num_projs, rng):
         raise NotImplementedError
 
-    def hash(self, vec, band_idx):
+    def hash(self, vec):
         raise NotImplementedError

@@ -10,9 +10,10 @@ class ConditionABC(metaclass=abc.ABCMeta):
         # alleles == genotype
         self._alleles = list(alleles)
         self._encoding = encoding
+
         self._phenotype = self._encoding.decode(self._alleles)
-        self._generality = self._encoding.calc_condition_generality(
-            self._phenotype)
+        self._generality = \
+            self._encoding.calc_phenotype_generality(self._phenotype)
 
     @property
     def alleles(self):
@@ -45,10 +46,9 @@ class ConditionABC(metaclass=abc.ABCMeta):
     def __len__(self):
         return len(self._phenotype)
 
-    @abc.abstractmethod
     def does_subsume(self, other):
         """Does this condition subsume other condition?"""
-        raise NotImplementedError
+        return self._encoding.does_subsume(self._phenotype, other._phenotype)
 
     @abc.abstractmethod
     def __str__(self):
@@ -56,23 +56,10 @@ class ConditionABC(metaclass=abc.ABCMeta):
 
 
 class TernaryCondition(ConditionABC):
-    def does_subsume(self, other):
-        for (my_elem, other_elem) in zip(self._phenotype, other._phenotype):
-            if (my_elem != TERNARY_HASH and my_elem != other_elem):
-                return False
-        return True
-
     def __str__(self):
         return " ".join([str(elem) for elem in self._phenotype])
 
 
 class IntervalCondition(ConditionABC):
-    def does_subsume(self, other):
-        for (my_interval, other_interval) in zip(self._phenotype,
-                                                 other._phenotype):
-            if not my_interval.does_subsume(other_interval):
-                return False
-        return True
-
     def __str__(self):
         return " && ".join([str(interval) for interval in self._phenotype])
