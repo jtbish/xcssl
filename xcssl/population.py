@@ -50,10 +50,6 @@ class PopulationABC(metaclass=abc.ABCMeta):
     def gen_match_set(self, obs):
         raise NotImplementedError
 
-    @abc.abstractmethod
-    def gen_matching_trace(self, obs):
-        raise NotImplementedError
-
 
 class VanillaPopulation(PopulationABC):
     """Default-style population that does not use phenotype clustering and

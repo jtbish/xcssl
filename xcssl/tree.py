@@ -1,7 +1,4 @@
-import copy
-
-from lsh import distance_between_lsh_keys
-from phenotype import VanillaPhenotype
+from .lsh import distance_between_lsh_keys
 
 
 class SubsumptionTree:
@@ -12,10 +9,12 @@ class SubsumptionTree:
 
         self._phenotype_count_map = self._init_phenotype_count_map(phenotypes)
 
-        (self._lsh_key_leaf_node_map, self._root_node) = self._make_tree(
-            self._encoding,
-            self._lsh,
-            phenotype_set=self._phenotype_count_map.keys())
+        self._phenotype_lsh_key_map = self._gen_phenotype_lsh_key_map(
+            self._lsh, phenotype_set=self._phenotype_count_map.keys())
+
+        (self._lsh_key_leaf_node_map,
+         self._root_node) = self._make_tree(self._encoding, self._lsh,
+                                            self._phenotype_lsh_key_map)
 
     def _init_phenotype_count_map(self, phenotypes):
         phenotype_count_map = {}
@@ -28,25 +27,6 @@ class SubsumptionTree:
 
         return phenotype_count_map
 
-    def _make_tree(self, encoding, lsh, phenotype_set):
-        # first, make leaf nodes at bottom of the tree, each identified by
-        # their LSH key
-        phenotype_lsh_key_map = self._gen_phenotype_lsh_key_map(
-            lsh, phenotype_set)
-
-        lsh_key_leaf_node_map = \
-            self._gen_lsh_key_leaf_node_map(phenotype_lsh_key_map, encoding)
-
-        # next, do HAC (complete linkage) on the leaf nodes to build the
-        # internal nodes and root node of the tree.
-        lsh_key_dist_map = self._gen_lsh_key_dist_map(self,
-                                                      lsh_key_leaf_node_map)
-
-        root_node = self._build_internal_and_root_nodes(
-            lsh_key_leaf_node_map, lsh_key_dist_map, encoding)
-
-        return (lsh_key_leaf_node_map, root_node)
-
     def _gen_phenotype_lsh_key_map(self, lsh, phenotype_set):
         """Generates the LSH hash/key for each phenotype
         (assumes hasher is using a single band)."""
@@ -55,6 +35,19 @@ class SubsumptionTree:
             phenotype: lsh.hash(phenotype.vec)
             for phenotype in phenotype_set
         }
+
+    def _make_tree(self, encoding, lsh, phenotype_lsh_key_map):
+        # first, make leaf nodes at bottom of the tree, each identified by
+        # their LSH key
+        lsh_key_leaf_node_map = \
+            self._gen_lsh_key_leaf_node_map(phenotype_lsh_key_map, encoding)
+
+        # next, do HAC (complete linkage) on the leaf nodes to build the
+        # internal nodes and root node of the tree.
+        root_node = self._build_internal_and_root_nodes(
+            lsh_key_leaf_node_map, encoding)
+
+        return (lsh_key_leaf_node_map, root_node)
 
     def _gen_lsh_key_leaf_node_map(self, phenotype_lsh_key_map, encoding):
         """Generates the mapping between LSH keys and the leaf nodes at the
@@ -76,120 +69,203 @@ class SubsumptionTree:
 
         return lsh_key_leaf_node_map
 
-    def _gen_lsh_key_dist_map(self, lsh_key_leaf_node_map):
-        # TODO change back to making a dist mat since don't necessarily konw
-        # the indexing oredr (could be either way). so needs to be symmetrical
-        """Will do n choose 2 dist. calcs, where n =
-        len(lsh_key_leaf_node_map).
-        Stores in sparse non-symmetrical double-nested dict."""
-
-        # all keys (rows) to loop over
-        full_lsh_key_set = lsh_key_leaf_node_map.keys()
-        # current set of other keys to compare to (shrinks each iter)
-        compare_lsh_key_set = copy.deepcopy(full_lsh_key_set)
-
-        lsh_key_dist_map = {}
-
-        for lsh_key_a in full_lsh_key_set:
-            # don't compare to self
-            compare_lsh_key_set.remove(lsh_key_a)
-
-            if len(compare_lsh_key_set) > 0:
-
-                local_map = {}
-
-                for lsh_key_b in compare_lsh_key_set:
-                    local_map[lsh_key_b] = \
-                        distance_between_lsh_keys(lsh_key_a, lsh_key_b)
-
-                lsh_key_dist_map[lsh_key_a] = local_map
-
-        return lsh_key_dist_map
-
-    def _build_internal_and_root_nodes(self, lsh_key_leaf_node_map,
-                                       lsh_key_dist_map, encoding):
+    def _build_internal_and_root_nodes(self, lsh_key_leaf_node_map, encoding):
         """Complete linkage HAC."""
-        curr_dist_map = lsh_key_dist_map
 
-        # map from "composite" keys (tuples of merged lsh keys) to internal
-        # nodes.
-        # this starts out with the leaf nodes (which techincally have
-        # non-composite keys), but need to be included to simplify key lookups
-        # (instead of having a leaf vs. non-leaf map and logic to check which
-        # one to query).
-        cmpst_key_node_map = {k: v for (k, v) in lsh_key_leaf_node_map.items()}
+        lsh_key_ls = []
+        tree_node_ls = []
 
+        # induce ordering on leaf nodes so they can be referred to by integer
+        # id == idx in lists
+        for (lsh_key, leaf_node) in lsh_key_leaf_node_map.items():
+            lsh_key_ls.append(lsh_key)
+            tree_node_ls.append(leaf_node)
+
+        n = len(lsh_key_leaf_node_map)
+        node_dist_mat = {node_id: {} for node_id in range(n)}
+
+        # iter over right off-diag of dist mat, fill it symmetrically
+        # can use ranges of ids in these loops since initially the ids form
+        # seq. of len n with no gaps
+        for row_node_id in range(0, (n - 1)):
+            for col_node_id in range((row_node_id + 1), n):
+
+                dist = distance_between_lsh_keys(
+                    lsh_key_a=lsh_key_ls[row_node_id],
+                    lsh_key_b=lsh_key_ls[col_node_id])
+
+                node_dist_mat[row_node_id][col_node_id] = dist
+                node_dist_mat[col_node_id][row_node_id] = dist
+
+        assert len(node_dist_mat) == n
+        for row in node_dist_mat.values():
+            # excludes diag.
+            assert len(row) == (n - 1)
+
+        curr_node_dist_mat = node_dist_mat
+        # id of the next node that results from a merge
+        next_node_id = n
+
+        num_merges_done = 0
+        root_node = None
         done = False
         while not done:
 
-            make_internal_node = (len(curr_dist_map) > 1)
+            self._pretty_print_node_dist_mat(curr_node_dist_mat)
+
+            n = len(curr_node_dist_mat)
+            make_internal_node = (n > 2)
 
             if make_internal_node:
 
-                # find min dist pair of keys to merge
+                # find min dist pair of node ids to merge
                 min_dist = None
                 merge_pair = None
 
-                for key_a in curr_dist_map.keys():
-                    for (key_b, dist) in (curr_dist_map[key_a]).items():
+                node_id_b_set = set(curr_node_dist_mat.keys())
+
+                for node_id_a in curr_node_dist_mat.keys():
+                    # skip self comparison
+                    node_id_b_set.remove(node_id_a)
+
+                    for node_id_b in node_id_b_set:
+
+                        dist = curr_node_dist_mat[node_id_a][node_id_b]
 
                         if min_dist is None or dist < min_dist:
                             min_dist = dist
-                            merge_pair = (key_a, key_b)
+                            merge_pair = (node_id_a, node_id_b)
 
-                # do the merge and make the new dist map
+                # do the merge
                 assert merge_pair is not None
-                # the new composite key is the merge pair
-                cmpst_key = merge_pair
+                (left_child_node_id, right_child_node_id) = merge_pair
 
-                # make new internal node and store it in node map
-                left_child_node = cmpst_key_node_map[cmpst_key[0]]
-                right_child_node = cmpst_key_node_map[cmpst_key[1]]
+                print(f"{next_node_id} = merge({left_child_node_id}, "
+                      f"{right_child_node_id}) @ {min_dist}")
+
+                # make new internal node and store it in the node list
+                left_child_node = tree_node_ls[left_child_node_id]
+                right_child_node = tree_node_ls[right_child_node_id]
 
                 internal_node = InternalNode(left_child_node, right_child_node,
                                              encoding)
-                cmpst_key_node_map[cmpst_key] = internal_node
+                tree_node_ls.append(internal_node)
 
                 # update parent pointers for both children
                 for child_node in (left_child_node, right_child_node):
                     child_node.parent_node = internal_node
 
-                # update the dist map for next iter
-                # first, copy over entries that aren't part of the merge (i.e.
-                # keys that aren't part of the new composite key)
-                next_dist_map = {
-                    k: v
-                    for (k, v) in curr_dist_map.items() if k not in cmpst_key
+                # update the dist mat for next iter
+                # first, copy over all the pairwise dists for the non merged
+                # node ids
+                non_merged_node_id_set = set(curr_node_dist_mat.keys()) - \
+                    {left_child_node_id, right_child_node_id}
+
+                next_node_dist_mat = {
+                    node_id: {}
+                    for node_id in non_merged_node_id_set
                 }
 
-                # next, determine the dist val for each unchanged key for the
-                # new composite key
-                cmpst_key_dists = {}
-                for unchanged_key in next_dist_map.keys():
+                node_id_b_set = set(non_merged_node_id_set)
 
-                    # complete linkage == max dist.
-                    max_dist = None
+                for node_id_a in non_merged_node_id_set:
+                    # skip self comparison
+                    node_id_b_set.remove(node_id_a)
 
-                    for sub_key in cmpst_key:
-                        dist = curr_dist_map[sub_key][unchanged_key]
+                    for node_id_b in node_id_b_set:
 
-                        if max_dist is None or dist > max_dist:
-                            max_dist = dist
+                        dist = curr_node_dist_mat[node_id_a][node_id_b]
 
-                    # distance for merged key is equal to this max. dist
-                    cmpst_key_dists[unchanged_key] = max_dist
+                        next_node_dist_mat[node_id_a][node_id_b] = dist
+                        next_node_dist_mat[node_id_b][node_id_a] = dist
 
-                next_dist_map[cmpst_key] = cmpst_key_dists
+                # then make a row for the next node id (result of the merge)
+                next_node_dist_mat[next_node_id] = {}
 
-                assert len(next_dist_map) == (len(curr_dist_map) - 1)
+                for non_merged_node_id in non_merged_node_id_set:
+                    # complete linkage == max dist between non merged id and
+                    # either of the merged node ids
+                    max_dist = max(
+                        curr_node_dist_mat[non_merged_node_id]
+                        [left_child_node_id],
+                        curr_node_dist_mat[non_merged_node_id]
+                        [right_child_node_id])
 
-                curr_dist_map = next_dist_map
+                    next_node_dist_mat[next_node_id][non_merged_node_id] = \
+                        max_dist
+                    next_node_dist_mat[non_merged_node_id][next_node_id] = \
+                        max_dist
+
+                # dist mat should have shrunk by one row and one column in each
+                # row
+                assert len(next_node_dist_mat) == (n - 1)
+                for row in next_node_dist_mat.values():
+                    # excludes diag.
+                    assert len(row) == (n - 2)
+
+                curr_node_dist_mat = next_node_dist_mat
+                next_node_id += 1
 
             else:
                 # make root node
-                assert len(curr_dist_map) == 1
+                assert len(curr_node_dist_mat) == 2
+
+                node_ids = list(curr_node_dist_mat.keys())
+                assert len(node_ids) == 2
+
+                left_child_node_id = node_ids[0]
+                right_child_node_id = node_ids[1]
+
+                print(f"Root = merge({left_child_node_id}, "
+                      f"{right_child_node_id})")
+
+                left_child_node = tree_node_ls[left_child_node_id]
+                right_child_node = tree_node_ls[right_child_node_id]
+
+                # make root node and update parent pointers for children
+                root_node = RootNode(left_child_node, right_child_node)
+
+                for child_node in (left_child_node, right_child_node):
+                    child_node.parent_node = root_node
 
                 done = True
+
+            num_merges_done += 1
+
+        assert root_node is not None
+
+        print("\n")
+        print(f"Num merges done = {num_merges_done}")
+
+        num_leaf_nodes = len(lsh_key_leaf_node_map)
+        num_internal_nodes = (len(tree_node_ls) - num_leaf_nodes)
+        total_num_nodes = (len(tree_node_ls) + 1)
+        print(f"Num leaf nodes = {num_leaf_nodes}")
+        print(f"Num internal nodes = {num_internal_nodes}")
+        print(f"Total num nodes = {total_num_nodes}")
+
+        print("\n")
+        for (id_, node) in enumerate(tree_node_ls):
+            print(id_, str(node.susbumer_phenotype.elems))
+
+        return root_node
+
+    def _pretty_print_node_dist_mat(self, node_dist_mat):
+        print("\n")
+
+        sorted_node_ids = sorted(node_dist_mat.keys())
+        header = "\t".join([str(id_) for id_ in sorted_node_ids])
+        print(f"\t\t{header}")
+        print("-"*80)
+
+        for id_ in sorted_node_ids:
+            dict_ = dict(node_dist_mat[id_])
+            dict_[id_] = "-"
+            dists = [e[1] for e in sorted(dict_.items())]
+            dists_str = "\t".join([str(d) for d in dists])
+            print(f"{id_}\t|\t{dists_str}")
+
+        print("\n")
 
     def gen_phenotype_matching_map(self, obs):
         raise NotImplementedError
@@ -209,14 +285,30 @@ class SubsumptionTree:
 
 class RootNode:
     """RootNode is the top of the tree.
-    No bounding volume, just left and right pointers to InternalNodes."""
-    pass
+    No bounding volume, just left and right pointers to InternalNodes i.e.
+    subtrees."""
+    def __init__(self, left_child_node, right_child_node):
+
+        for node in (left_child_node, right_child_node):
+            assert (isinstance(node, LeafNode)
+                    or isinstance(node, InternalNode))
+
+        self._left_child_node = left_child_node
+        self._right_child_node = right_child_node
+
+    @property
+    def left_child_node(self):
+        return self._left_child_node
+
+    @property
+    def right_child_node(self):
+        return self._right_child_node
 
 
 class InternalNode:
     """InternalNode is a bounding volume with left and right pointers
     to either other InternalNode or LeafNode objs."""
-    def __init___(self, left_child_node, right_child_node, encoding):
+    def __init__(self, left_child_node, right_child_node, encoding):
 
         for node in (left_child_node, right_child_node):
             assert (isinstance(node, LeafNode)
@@ -227,10 +319,8 @@ class InternalNode:
 
         # subsumer for this InternalNode needs to susbume both the subsumer
         # phenotypes for the child nodes
-        phenotypes_to_subsume = [
-            self._left_child_node.susbumer_phenotype,
-            self._right_child_node.susbumer_phenotype
-        ]
+        phenotypes_to_subsume = (self._left_child_node.susbumer_phenotype,
+                                 self._right_child_node.susbumer_phenotype)
         self._subsumer_phenotype = \
             encoding.make_subsumer_phenotype(phenotypes_to_subsume)
 
@@ -257,6 +347,7 @@ class InternalNode:
     @parent_node.setter
     def parent_node(self, node):
         # should only be used a single time when building tree
+        # hence when setting parent node it should be null
         assert self._parent_node is None
 
         assert (isinstance(node, InternalNode) or isinstance(node, RootNode))
@@ -272,10 +363,8 @@ class LeafNode:
         self._num_phenotypes = len(self._phenotypes)
 
         if self._num_phenotypes == 1:
-            # sole member of cluster is the subsumer (but new obj., only needs
-            # do be vanilla phenotype, not vectorised).
-            self._subsumer_phenotype = \
-                VanillaPhenotype(self._phenotypes[0].elems)
+            # sole member of cluster is the subsumer
+            self._subsumer_phenotype = self._phenotypes[0]
 
         elif self._num_phenotypes > 1:
             self._subsumer_phenotype = \
@@ -306,7 +395,8 @@ class LeafNode:
     @parent_node.setter
     def parent_node(self, node):
         # should only be used a single time when building tree
+        # hence when setting parent node it should be null
         assert self._parent_node is None
 
-        assert isinstance(node, InternalNode)
+        assert (isinstance(node, InternalNode) or isinstance(node, RootNode))
         self._parent_node = node
