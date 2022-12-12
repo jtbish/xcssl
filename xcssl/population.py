@@ -1,6 +1,6 @@
 import abc
 
-from .clustering import PhenotypeClustering
+from .tree import SubsumptionTree
 
 
 class PopulationABC(metaclass=abc.ABCMeta):
@@ -75,13 +75,9 @@ class VanillaPopulation(PopulationABC):
         macroclassifier."""
         return [clfr for clfr in self._clfrs if clfr.does_match(obs)]
 
-    def gen_matching_trace(self, obs):
-        return [clfr.does_match(obs) for clfr in self._clfrs]
-
 
 class FastMatchingPopulation(PopulationABC):
-    """Population that use a PhenotypeClustering to perform fast
-    matching."""
+    """Population that uses an index to perform fast matching."""
     def __init__(self, vanilla_pop, encoding, lsh):
         """FastMatchingPopulation needs to be inited from existing
         VanillaPopulation."""
@@ -91,14 +87,14 @@ class FastMatchingPopulation(PopulationABC):
         self._num_micros = vanilla_pop._num_micros
         self._ops_history = vanilla_pop._ops_history
 
-        # make the phenotype clustering
+        # make the phenotype index
         # first, vectorise all the condition phenotype in the pop
-        # so they can be hashed by lsh
+        # so that distance calcs can be done for them
         self._vectorise_clfr_phenotypes(self._clfrs)
 
-        self._clustering = PhenotypeClustering(
-            encoding,
-            lsh,
+        self._index = SubsumptionTree(
+            encoding=encoding,
+            lsh=lsh,
             phenotypes=[clfr.condition.phenotype for clfr in self._clfrs])
 
     def _vectorise_clfr_phenotypes(self, clfrs):
@@ -110,25 +106,17 @@ class FastMatchingPopulation(PopulationABC):
     def add_new(self, clfr, op, time_step=None):
         super().add_new(clfr, op, time_step)
 
-        self._clustering.try_add_phenotype(clfr.condition.phenotype)
+        self._index.try_add_phenotype(clfr.condition.phenotype)
 
     def remove(self, clfr, op=None):
         super().remove(clfr, op)
 
-        self._clustering.try_remove_phenotype(clfr.condition.phenotype)
+        self._index.try_remove_phenotype(clfr.condition.phenotype)
 
     def gen_match_set(self, obs):
         phenotype_matching_map = \
-            self._clustering.gen_phenotype_matching_map(obs)
+            self._index.gen_phenotype_matching_map(obs)
         return [
             clfr for clfr in self._clfrs
             if phenotype_matching_map[clfr.condition.phenotype]
-        ]
-
-    def gen_matching_trace(self, obs):
-        phenotype_matching_map = \
-            self._clustering.gen_phenotype_matching_map(obs)
-        return [
-            phenotype_matching_map[clfr.condition.phenotype]
-            for clfr in self._clfrs
         ]

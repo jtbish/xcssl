@@ -5,6 +5,13 @@ import numpy as np
 _MIN_NUM_PROJS = 1
 
 
+def distance_between_lsh_keys(lsh_key_a, lsh_key_b):
+    """L1 dist between key tups."""
+    return sum(
+        abs(e_a - e_b)
+        for (e_a, e_b) in zip(lsh_key_a._key_tup, lsh_key_b._key_tup))
+
+
 class LSHKey:
     """Wrapper over tuple for LSH keys to cache the hash value."""
     def __init__(self, key_tup):
