@@ -90,9 +90,14 @@ class SubsumptionTree:
         for row_node_id in range(0, (n - 1)):
             for col_node_id in range((row_node_id + 1), n):
 
-                dist = distance_between_lsh_keys(
-                    lsh_key_a=lsh_key_ls[row_node_id],
-                    lsh_key_b=lsh_key_ls[col_node_id])
+                # dist = distance_between_lsh_keys(
+                #    lsh_key_a=lsh_key_ls[row_node_id],
+                #    lsh_key_b=lsh_key_ls[col_node_id])
+                dist = encoding.distance_between(
+                    phenotype_vec_a=(
+                        tree_node_ls[row_node_id]).susbumer_phenotype.vec,
+                    phenotype_vec_b=(
+                        tree_node_ls[col_node_id]).susbumer_phenotype.vec)
 
                 node_dist_mat[row_node_id][col_node_id] = dist
                 node_dist_mat[col_node_id][row_node_id] = dist
@@ -256,7 +261,7 @@ class SubsumptionTree:
         sorted_node_ids = sorted(node_dist_mat.keys())
         header = "\t".join([str(id_) for id_ in sorted_node_ids])
         print(f"\t\t{header}")
-        print("-"*80)
+        print("-" * 80)
 
         for id_ in sorted_node_ids:
             dict_ = dict(node_dist_mat[id_])

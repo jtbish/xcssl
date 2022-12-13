@@ -199,8 +199,8 @@ class TernaryEncoding(EncodingABC):
                     # some mixture of zeroes and ones
                     subsumer_elems.append(TERNARY_HASH)
 
-        # doesn't need to be a vectorised phenotype
-        return VanillaPhenotype(subsumer_elems)
+        subsumer_vec = self.gen_phenotype_vec(subsumer_elems)
+        return VectorisedPhenotype(subsumer_elems, subsumer_vec)
 
     def expand_subsumer_phenotype(self, subsumer_phenotype, addee_phenotype):
 
@@ -219,7 +219,8 @@ class TernaryEncoding(EncodingABC):
 
                 new_subsumer_elems.append(s_elem)
 
-        return VanillaPhenotype(new_subsumer_elems)
+        new_subsumer_vec = self.gen_phenotype_vec(new_subsumer_elems)
+        return VectorisedPhenotype(new_subsumer_elems, new_subsumer_vec)
 
     def _make_lsh(self, num_dims):
         num_projs = get_hp("lsh_num_projs")
