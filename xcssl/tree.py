@@ -90,7 +90,7 @@ class SubsumptionTree:
         for row_node_id in range(0, (n - 1)):
             for col_node_id in range((row_node_id + 1), n):
 
-                # dist = distance_between_lsh_keys(
+                #dist = distance_between_lsh_keys(
                 #    lsh_key_a=lsh_key_ls[row_node_id],
                 #    lsh_key_b=lsh_key_ls[col_node_id])
                 dist = encoding.distance_between(
@@ -213,8 +213,6 @@ class SubsumptionTree:
 
             else:
                 # make root node
-                assert len(curr_node_dist_mat) == 2
-
                 node_ids = list(curr_node_dist_mat.keys())
                 assert len(node_ids) == 2
 
@@ -273,7 +271,20 @@ class SubsumptionTree:
         print("\n")
 
     def gen_phenotype_matching_map(self, obs):
-        raise NotImplementedError
+        phenotype_matching_map = {}
+
+        # pre-order traversal of the tree
+
+        curr_node = self._root_node
+
+        while self._encoding.does_phenotype_match(next_node.susbumer_phenotype,
+                                                  obs):
+            pass
+
+        return phenotype_matching_map
+
+    def _visit_node(self):
+        pass
 
     def try_add_phenotype(self, phenotype):
         raise NotImplementedError
