@@ -1,5 +1,8 @@
 from .lsh import distance_between_lsh_keys
 
+_SAH_C_T = 1
+_SAH_C_I = 1
+
 
 class SubsumptionTree:
     def __init__(self, encoding, lsh, phenotypes):
@@ -70,44 +73,54 @@ class SubsumptionTree:
         return lsh_key_leaf_node_map
 
     def _build_internal_and_root_nodes(self, lsh_key_leaf_node_map, encoding):
-        """Complete linkage HAC."""
 
-        lsh_key_ls = []
-        tree_node_ls = []
+        # make node list by firstly
+        # inducing ordering on leaf nodes so they can be referred to by integer
+        # id (== idx in the list)
+        node_ls = list(lsh_key_leaf_node_map.values())
 
-        # induce ordering on leaf nodes so they can be referred to by integer
-        # id == idx in lists
-        for (lsh_key, leaf_node) in lsh_key_leaf_node_map.items():
-            lsh_key_ls.append(lsh_key)
-            tree_node_ls.append(leaf_node)
+        # then calc SAH cost of all leaf nodes (base case of recurrence), store
+        # in parallel list
+        node_cost_ls = []
+        for leaf_node in node_ls:
+            # for leaf node:
+            # c(N) = c_I * |N|
+            #node_cost_ls.append(_SAH_C_I * leaf_node.size)
+            node_cost_ls.append(leaf_node.subsumer_phenotype.generality)
 
-        n = len(lsh_key_leaf_node_map)
-        node_dist_mat = {node_id: {} for node_id in range(n)}
+        for (idx, cost) in enumerate(node_cost_ls):
+            print(idx, cost)
+        print("\n")
 
-        # iter over right off-diag of dist mat, fill it symmetrically
+        n = len(node_ls)
+        subsumer_cost_mat = {node_id: {} for node_id in range(n)}
+
+        # iter over right off-diag of mat, fill it symmetrically
         # can use ranges of ids in these loops since initially the ids form
         # seq. of len n with no gaps
         for row_node_id in range(0, (n - 1)):
             for col_node_id in range((row_node_id + 1), n):
 
-                #dist = distance_between_lsh_keys(
-                #    lsh_key_a=lsh_key_ls[row_node_id],
-                #    lsh_key_b=lsh_key_ls[col_node_id])
-                dist = encoding.distance_between(
-                    phenotype_vec_a=(
-                        tree_node_ls[row_node_id]).susbumer_phenotype.vec,
-                    phenotype_vec_b=(
-                        tree_node_ls[col_node_id]).susbumer_phenotype.vec)
+                subsumer = encoding.make_subsumer_phenotype(
+                    phenotypes=((node_ls[row_node_id]).subsumer_phenotype,
+                                (node_ls[col_node_id]).subsumer_phenotype))
 
-                node_dist_mat[row_node_id][col_node_id] = dist
-                node_dist_mat[col_node_id][row_node_id] = dist
+                #cost = self._calc_internal_node_cost(
+                #    node_ls,
+                #    node_cost_ls,
+                #    internal_node_subsumer_phenotype=subsumer,
+                #    child_node_id_a=row_node_id,
+                #    child_node_id_b=col_node_id)
+                cost = subsumer.generality
 
-        assert len(node_dist_mat) == n
-        for row in node_dist_mat.values():
+                subsumer_cost_mat[row_node_id][col_node_id] = (subsumer, cost)
+                subsumer_cost_mat[col_node_id][row_node_id] = (subsumer, cost)
+
+        assert len(subsumer_cost_mat) == n
+        for row in subsumer_cost_mat.values():
             # excludes diag.
             assert len(row) == (n - 1)
 
-        curr_node_dist_mat = node_dist_mat
         # id of the next node that results from a merge
         next_node_id = n
 
@@ -116,104 +129,110 @@ class SubsumptionTree:
         done = False
         while not done:
 
-            self._pretty_print_node_dist_mat(curr_node_dist_mat)
+            self._pretty_print_subsumer_cost_mat(subsumer_cost_mat)
 
-            n = len(curr_node_dist_mat)
+            n = len(subsumer_cost_mat)
             make_internal_node = (n > 2)
 
             if make_internal_node:
 
-                # find min dist pair of node ids to merge
-                min_dist = None
+                # find min cost pair to do merge for
+                min_cost = None
                 merge_pair = None
 
-                node_id_b_set = set(curr_node_dist_mat.keys())
+                rod_iter = self._make_right_off_diag_iter(
+                    node_id_set=subsumer_cost_mat.keys())
 
-                for node_id_a in curr_node_dist_mat.keys():
-                    # skip self comparison
-                    node_id_b_set.remove(node_id_a)
+                for (node_id_a, node_id_b) in rod_iter:
+                    cost = (subsumer_cost_mat[node_id_a][node_id_b])[1]
 
-                    for node_id_b in node_id_b_set:
-
-                        dist = curr_node_dist_mat[node_id_a][node_id_b]
-
-                        if min_dist is None or dist < min_dist:
-                            min_dist = dist
-                            merge_pair = (node_id_a, node_id_b)
+                    if min_cost is None or cost < min_cost:
+                        min_cost = cost
+                        merge_pair = (node_id_a, node_id_b)
 
                 # do the merge
                 assert merge_pair is not None
                 (left_child_node_id, right_child_node_id) = merge_pair
 
                 print(f"{next_node_id} = merge({left_child_node_id}, "
-                      f"{right_child_node_id}) @ {min_dist}")
+                      f"{right_child_node_id}) @ cost {min_cost:.2f}")
 
-                # make new internal node and store it in the node list
-                left_child_node = tree_node_ls[left_child_node_id]
-                right_child_node = tree_node_ls[right_child_node_id]
+                # make new internal node and store it in the node list, along
+                # with its cost in the cost list
+                left_child_node = node_ls[left_child_node_id]
+                right_child_node = node_ls[right_child_node_id]
+
+                (internal_node_subsumer_phenotype, internal_node_cost) = \
+                    subsumer_cost_mat[left_child_node_id][right_child_node_id]
 
                 internal_node = InternalNode(left_child_node, right_child_node,
-                                             encoding)
-                tree_node_ls.append(internal_node)
+                                             internal_node_subsumer_phenotype)
+                node_ls.append(internal_node)
+                node_cost_ls.append(internal_node_cost)
 
                 # update parent pointers for both children
                 for child_node in (left_child_node, right_child_node):
                     child_node.parent_node = internal_node
 
-                # update the dist mat for next iter
+                # update the subsumer mat for next iter
                 # first, copy over all the pairwise dists for the non merged
                 # node ids
-                non_merged_node_id_set = set(curr_node_dist_mat.keys()) - \
-                    {left_child_node_id, right_child_node_id}
+                non_merged_node_id_set = (
+                    set(subsumer_cost_mat.keys()) -
+                    {left_child_node_id, right_child_node_id})
 
-                next_node_dist_mat = {
+                next_subsumer_cost_mat = {
                     node_id: {}
                     for node_id in non_merged_node_id_set
                 }
 
-                node_id_b_set = set(non_merged_node_id_set)
+                rod_iter = self._make_right_off_diag_iter(
+                    node_id_set=non_merged_node_id_set)
 
-                for node_id_a in non_merged_node_id_set:
-                    # skip self comparison
-                    node_id_b_set.remove(node_id_a)
+                for (node_id_a, node_id_b) in rod_iter:
+                    (subsumer, cost) = subsumer_cost_mat[node_id_a][node_id_b]
 
-                    for node_id_b in node_id_b_set:
+                    next_subsumer_cost_mat[node_id_a][node_id_b] = (subsumer,
+                                                                    cost)
+                    next_subsumer_cost_mat[node_id_b][node_id_a] = (subsumer,
+                                                                    cost)
 
-                        dist = curr_node_dist_mat[node_id_a][node_id_b]
-
-                        next_node_dist_mat[node_id_a][node_id_b] = dist
-                        next_node_dist_mat[node_id_b][node_id_a] = dist
-
-                # then make a row for the next node id (result of the merge)
-                next_node_dist_mat[next_node_id] = {}
+                # then, make a row for the next node id (result of the merge)
+                # and populate the matrix for this next node id
+                next_subsumer_cost_mat[next_node_id] = {}
 
                 for non_merged_node_id in non_merged_node_id_set:
-                    # complete linkage == max dist between non merged id and
-                    # either of the merged node ids
-                    max_dist = max(
-                        curr_node_dist_mat[non_merged_node_id]
-                        [left_child_node_id],
-                        curr_node_dist_mat[non_merged_node_id]
-                        [right_child_node_id])
 
-                    next_node_dist_mat[next_node_id][non_merged_node_id] = \
-                        max_dist
-                    next_node_dist_mat[non_merged_node_id][next_node_id] = \
-                        max_dist
+                    subsumer = encoding.make_subsumer_phenotype(phenotypes=(
+                        (node_ls[non_merged_node_id]).subsumer_phenotype,
+                        internal_node_subsumer_phenotype))
 
-                # dist mat should have shrunk by one row and one column in each
-                # row
-                assert len(next_node_dist_mat) == (n - 1)
-                for row in next_node_dist_mat.values():
+                    #cost = self._calc_internal_node_cost(
+                    #    node_ls,
+                    #    node_cost_ls,
+                    #    internal_node_subsumer_phenotype=subsumer,
+                    #    child_node_id_a=next_node_id,
+                    #    child_node_id_b=non_merged_node_id)
+                    cost = subsumer.generality
+
+                    next_subsumer_cost_mat[next_node_id][
+                        non_merged_node_id] = (subsumer, cost)
+                    next_subsumer_cost_mat[non_merged_node_id][
+                        next_node_id] = (subsumer, cost)
+
+                # mat should have shrunk by one row and one column in
+                # each row
+                assert len(next_subsumer_cost_mat) == (n - 1)
+                for row in next_subsumer_cost_mat.values():
                     # excludes diag.
                     assert len(row) == (n - 2)
 
-                curr_node_dist_mat = next_node_dist_mat
+                subsumer_cost_mat = next_subsumer_cost_mat
                 next_node_id += 1
 
             else:
                 # make root node
-                node_ids = list(curr_node_dist_mat.keys())
+                node_ids = list(subsumer_cost_mat.keys())
                 assert len(node_ids) == 2
 
                 left_child_node_id = node_ids[0]
@@ -222,8 +241,8 @@ class SubsumptionTree:
                 print(f"Root = merge({left_child_node_id}, "
                       f"{right_child_node_id})")
 
-                left_child_node = tree_node_ls[left_child_node_id]
-                right_child_node = tree_node_ls[right_child_node_id]
+                left_child_node = node_ls[left_child_node_id]
+                right_child_node = node_ls[right_child_node_id]
 
                 # make root node and update parent pointers for children
                 root_node = RootNode(left_child_node, right_child_node)
@@ -241,50 +260,72 @@ class SubsumptionTree:
         print(f"Num merges done = {num_merges_done}")
 
         num_leaf_nodes = len(lsh_key_leaf_node_map)
-        num_internal_nodes = (len(tree_node_ls) - num_leaf_nodes)
-        total_num_nodes = (len(tree_node_ls) + 1)
+        num_internal_nodes = (len(node_ls) - num_leaf_nodes)
+        total_num_nodes = (len(node_ls) + 1)
         print(f"Num leaf nodes = {num_leaf_nodes}")
         print(f"Num internal nodes = {num_internal_nodes}")
         print(f"Total num nodes = {total_num_nodes}")
 
         print("\n")
-        for (id_, node) in enumerate(tree_node_ls):
-            print(id_, str(node.susbumer_phenotype.elems))
+        for (id_, node) in enumerate(node_ls):
+            print(id_, str(node.subsumer_phenotype.elems))
 
         return root_node
 
-    def _pretty_print_node_dist_mat(self, node_dist_mat):
+    def _calc_internal_node_cost(self, node_ls, node_cost_ls,
+                                 internal_node_subsumer_phenotype,
+                                 child_node_id_a, child_node_id_b):
+        # for interal node:
+        # c(N) = c_T + sum_{N_c} ((SA(N_c) / SA(N)) * c(N_c))
+        #      = c_T + 1/SA(N) * sum_{N_c} (SA(N_c) * c(N_c))
+        cost = 0
+
+        for child_node_id in (child_node_id_a, child_node_id_b):
+
+            sa = (node_ls[child_node_id]).subsumer_phenotype.generality
+            c = node_cost_ls[child_node_id]
+            cost += (sa * c)
+
+        cost /= internal_node_subsumer_phenotype.generality
+
+        cost += _SAH_C_T
+
+        return cost
+
+    def _pretty_print_subsumer_cost_mat(self, subsumer_cost_mat):
         print("\n")
 
-        sorted_node_ids = sorted(node_dist_mat.keys())
+        sorted_node_ids = sorted(subsumer_cost_mat.keys())
         header = "\t".join([str(id_) for id_ in sorted_node_ids])
         print(f"\t\t{header}")
         print("-" * 80)
 
         for id_ in sorted_node_ids:
-            dict_ = dict(node_dist_mat[id_])
-            dict_[id_] = "-"
-            dists = [e[1] for e in sorted(dict_.items())]
-            dists_str = "\t".join([str(d) for d in dists])
-            print(f"{id_}\t|\t{dists_str}")
+            dict_ = dict(subsumer_cost_mat[id_])
+            dict_[id_] = ("-", 0)
+            costs = [v[1] for (k, v) in sorted(dict_.items())]
+            costs_str = "\t".join([f"{c:.2f}" for c in costs])
+            print(f"{id_}\t|\t{costs_str}")
 
         print("\n")
 
+    def _make_right_off_diag_iter(self, node_id_set):
+        rod_iter = []
+
+        outer_id_set = node_id_set
+        inner_id_set = set(node_id_set)
+
+        for outer_id in outer_id_set:
+            inner_id_set.remove(outer_id)
+
+            for inner_id in inner_id_set:
+
+                rod_iter.append((outer_id, inner_id))
+
+        return rod_iter
+
     def gen_phenotype_matching_map(self, obs):
-        phenotype_matching_map = {}
-
-        # pre-order traversal of the tree
-
-        curr_node = self._root_node
-
-        while self._encoding.does_phenotype_match(next_node.susbumer_phenotype,
-                                                  obs):
-            pass
-
-        return phenotype_matching_map
-
-    def _visit_node(self):
-        pass
+        raise NotImplementedError
 
     def try_add_phenotype(self, phenotype):
         raise NotImplementedError
@@ -324,7 +365,7 @@ class RootNode:
 class InternalNode:
     """InternalNode is a bounding volume with left and right pointers
     to either other InternalNode or LeafNode objs."""
-    def __init__(self, left_child_node, right_child_node, encoding):
+    def __init__(self, left_child_node, right_child_node, subsumer_phenotype):
 
         for node in (left_child_node, right_child_node):
             assert (isinstance(node, LeafNode)
@@ -333,12 +374,7 @@ class InternalNode:
         self._left_child_node = left_child_node
         self._right_child_node = right_child_node
 
-        # subsumer for this InternalNode needs to susbume both the subsumer
-        # phenotypes for the child nodes
-        phenotypes_to_subsume = (self._left_child_node.susbumer_phenotype,
-                                 self._right_child_node.susbumer_phenotype)
-        self._subsumer_phenotype = \
-            encoding.make_subsumer_phenotype(phenotypes_to_subsume)
+        self._subsumer_phenotype = subsumer_phenotype
 
         # at init, parent node is unknown, will be updated when building higher
         # levels of the tree
@@ -353,7 +389,7 @@ class InternalNode:
         return self._right_child_node
 
     @property
-    def susbumer_phenotype(self):
+    def subsumer_phenotype(self):
         return self._subsumer_phenotype
 
     @property
@@ -401,7 +437,7 @@ class LeafNode:
         return self._num_phenotypes
 
     @property
-    def susbumer_phenotype(self):
+    def subsumer_phenotype(self):
         return self._subsumer_phenotype
 
     @property

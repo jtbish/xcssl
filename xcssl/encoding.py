@@ -25,12 +25,14 @@ class EncodingABC(metaclass=abc.ABCMeta):
 
     def decode(self, cond_alleles):
         phenotype_elems = self._decode(cond_alleles)
+        phenotype_generality = self.calc_phenotype_generality(phenotype_elems)
 
         if not self._vectorise_phenotypes:
-            return VanillaPhenotype(phenotype_elems)
+            return VanillaPhenotype(phenotype_elems, phenotype_generality)
         else:
             phenotype_vec = self.gen_phenotype_vec(phenotype_elems)
-            return VectorisedPhenotype(phenotype_elems, phenotype_vec)
+            return VectorisedPhenotype(phenotype_elems, phenotype_generality,
+                                       phenotype_vec)
 
     def make_lsh(self):
         num_dims = self.calc_num_phenotype_vec_dims()
@@ -50,7 +52,7 @@ class EncodingABC(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def calc_phenotype_generality(self, phenotype):
+    def calc_phenotype_generality(self, phenotype_elems):
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -121,9 +123,9 @@ class TernaryEncoding(EncodingABC):
         # genotype == phenotype
         return tuple(cond_alleles)
 
-    def calc_phenotype_generality(self, phenotype):
+    def calc_phenotype_generality(self, phenotype_elems):
         """Number of don't care elems."""
-        return phenotype.elems.count(TERNARY_HASH)
+        return phenotype_elems.count(TERNARY_HASH)
 
     def mutate_condition_alleles(self, cond_alleles, obs):
         mut_alleles = []
@@ -199,8 +201,8 @@ class TernaryEncoding(EncodingABC):
                     # some mixture of zeroes and ones
                     subsumer_elems.append(TERNARY_HASH)
 
-        subsumer_vec = self.gen_phenotype_vec(subsumer_elems)
-        return VectorisedPhenotype(subsumer_elems, subsumer_vec)
+        subsumer_genr = self.calc_phenotype_generality(subsumer_elems)
+        return VanillaPhenotype(subsumer_elems, subsumer_genr)
 
     def expand_subsumer_phenotype(self, subsumer_phenotype, addee_phenotype):
 
@@ -219,8 +221,8 @@ class TernaryEncoding(EncodingABC):
 
                 new_subsumer_elems.append(s_elem)
 
-        new_subsumer_vec = self.gen_phenotype_vec(new_subsumer_elems)
-        return VectorisedPhenotype(new_subsumer_elems, new_subsumer_vec)
+        new_subsumer_genr = self.calc_phenotype_generality(new_subsumer_elems)
+        return VanillaPhenotype(new_subsumer_elems, new_subsumer_genr)
 
     def _make_lsh(self, num_dims):
         num_projs = get_hp("lsh_num_projs")
@@ -264,7 +266,7 @@ class UnorderedBoundEncodingABC(EncodingABC, metaclass=abc.ABCMeta):
         return phenotype
 
     @abc.abstractmethod
-    def calc_phenotype_generality(self, phenotype):
+    def calc_phenotype_generality(self, phenotype_elems):
         raise NotImplementedError
 
     def mutate_condition_alleles(self, cond_alleles, obs=None):
@@ -334,10 +336,10 @@ class IntegerUnorderedBoundEncoding(UnorderedBoundEncodingABC):
         upper = min(upper, dim.upper)
         return (lower, upper)
 
-    def calc_phenotype_generality(self, phenotype):
+    def calc_phenotype_generality(self, phenotype_elems):
         # condition generality calc as in
         # Wilson '00 Mining Oblique Data with XCS
-        cond_intervals = phenotype.elems
+        cond_intervals = phenotype_elems
         numer = sum([interval.span for interval in cond_intervals])
         denom = sum([dim.span for dim in self._obs_space])
         generality = numer / denom
@@ -374,8 +376,8 @@ class RealUnorderedBoundEncoding(UnorderedBoundEncodingABC):
         upper = min(upper, dim.upper)
         return (lower, upper)
 
-    def calc_phenotype_generality(self, phenotype):
-        cond_intervals = phenotype.elems
+    def calc_phenotype_generality(self, phenotype_elems):
+        cond_intervals = phenotype_elems
         numer = sum([interval.span for interval in cond_intervals])
         denom = sum([dim for dim in self._obs_space])
         generality = numer / denom

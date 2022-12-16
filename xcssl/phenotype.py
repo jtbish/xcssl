@@ -2,12 +2,17 @@ import abc
 
 
 class PhenotypeABC(metaclass=abc.ABCMeta):
-    def __init__(self, elems):
+    def __init__(self, elems, generality):
         self._elems = tuple(elems)
+        self._generality = generality
 
     @property
     def elems(self):
         return self._elems
+
+    @property
+    def generality(self):
+        return self._generality
 
     def __eq__(self, other):
         for (my_elem, other_elem) in zip(self._elems, other._elems):
@@ -31,8 +36,8 @@ class VanillaPhenotype(PhenotypeABC):
 
 class VectorisedPhenotype(PhenotypeABC):
     """Phenotype for LSH, imbued with additional vectorised repr."""
-    def __init__(self, elems, vec):
-        super().__init__(elems)
+    def __init__(self, elems, generality, vec):
+        super().__init__(elems, generality)
         self._vec = vec
         # cache the hash value for faster set/dict operations
         self._hash = hash(self._elems)
