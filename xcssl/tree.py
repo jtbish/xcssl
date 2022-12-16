@@ -253,7 +253,7 @@ class SubsumptionTree:
         sorted_node_ids = sorted(subsumer_cost_mat.keys())
         header = "     \t".join([str(id_) for id_ in sorted_node_ids])
         print(f"\t\t{header}")
-        print("-" * 80)
+        print("-" * 180)
 
         for id_ in sorted_node_ids:
             dict_ = dict(subsumer_cost_mat[id_])
