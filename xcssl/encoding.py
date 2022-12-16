@@ -204,6 +204,32 @@ class TernaryEncoding(EncodingABC):
         subsumer_genr = self.calc_phenotype_generality(subsumer_elems)
         return VanillaPhenotype(subsumer_elems, subsumer_genr)
 
+    def make_subsumer_phenotype_and_calc_dist(self, phenotype_a, phenotype_b):
+        subsumer_elems = []
+        dist = 0
+
+        for (a_elem, b_elem) in zip(phenotype_a, phenotype_b):
+
+            if a_elem == b_elem:
+                # no bit diff so dist not increased
+                subsumer_elems.append(a_elem)
+
+            else:
+                if a_elem == TERNARY_HASH or b_elem == TERNARY_HASH:
+                    # if one of the elems is hash then the other is at most 1
+                    # bit diff away (being either 0 or 1)
+                    dist += 1
+                else:
+                    # some combo of 0 and 1, implying bit diff is 2
+                    dist += 2
+
+                # in either case only way to subsume both is with hash
+                subsumer_elems.append(TERNARY_HASH)
+
+        subsumer_genr = self.calc_phenotype_generality(subsumer_elems)
+        subsumer_phenotype = VanillaPhenotype(subsumer_elems, subsumer_genr)
+        return (subsumer_phenotype, dist)
+
     def expand_subsumer_phenotype(self, subsumer_phenotype, addee_phenotype):
 
         new_subsumer_elems = []
