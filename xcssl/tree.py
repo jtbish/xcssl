@@ -42,7 +42,7 @@ class SubsumptionTree:
         lsh_key_leaf_node_map = \
             self._gen_lsh_key_leaf_node_map(phenotype_lsh_key_map, encoding)
 
-        # next, do HAC (complete linkage) on the leaf nodes to build the
+        # next, do HAC on the leaf nodes to build the
         # internal nodes and root node of the tree.
         root_node = self._build_internal_and_root_nodes(
             lsh_key_leaf_node_map, encoding)
@@ -65,7 +65,8 @@ class SubsumptionTree:
         # then make the actual LeafNode objs. from these partitions
         lsh_key_leaf_node_map = {}
         for (lsh_key, phenotypes) in partitions.items():
-            lsh_key_leaf_node_map[lsh_key] = LeafNode(phenotypes, encoding)
+            lsh_key_leaf_node_map[lsh_key] = LeafNode(lsh_key, phenotypes,
+                                                      encoding)
 
         return lsh_key_leaf_node_map
 
@@ -280,7 +281,66 @@ class SubsumptionTree:
         return rod_iter
 
     def gen_phenotype_matching_map(self, obs):
-        raise NotImplementedError
+
+        res = {}
+
+        # stack based pre-order traversal of tree
+        stack = []
+        stack.append(self._root_node.right_child_node)
+        stack.append(self._root_node.left_child_node)
+
+        checked_leaf_node_lsh_keys = set()
+
+        num_matching_ops_done = 0
+
+        while len(stack) > 0:
+
+            node = stack.pop()
+            is_internal = isinstance(node, InternalNode)
+
+            does_match = self._encoding.does_phenotype_match(
+                node.subsumer_phenotype, obs)
+
+            num_matching_ops_done += 1
+
+            if is_internal and does_match:
+                # traverse the children
+                stack.append(node.right_child_node)
+                stack.append(node.left_child_node)
+
+            if not is_internal:
+
+                if does_match:
+                    # matching leaf node, so need to check all phenotypes
+                    # contained within it
+                    res.update(
+                        node.gen_phenotype_matching_map(self._encoding, obs))
+
+                    num_matching_ops_done += node.size
+
+                else:
+                    # non-matching leaf node, so all phenotypes contained
+                    # within it also do not match
+                    res.update(
+                        {phenotype: False
+                         for phenotype in node.phenotypes})
+
+                # in either case, mark the leaf node as checked
+                checked_leaf_node_lsh_keys.add(node.lsh_key)
+
+        # any leaf node lsh keys that weren't checked implicitly did not match
+        # since traversal never reached them
+        for (lsh_key, leaf_node) in self._lsh_key_leaf_node_map.items():
+
+            if lsh_key not in checked_leaf_node_lsh_keys:
+
+                res.update(
+                    {phenotype: False
+                     for phenotype in leaf_node.phenotypes})
+
+        assert len(res) == len(self._phenotype_count_map)
+
+        return (res, num_matching_ops_done)
 
     def try_add_phenotype(self, phenotype):
         raise NotImplementedError
@@ -364,7 +424,9 @@ class InternalNode:
 class LeafNode:
     """LeafNode is a partition of phenotypes that has associated subsumer
     phenotype (i.e. bounding volume)."""
-    def __init__(self, phenotypes, encoding):
+    def __init__(self, lsh_key, phenotypes, encoding):
+        self._lsh_key = lsh_key
+
         self._phenotypes = phenotypes
 
         self._num_phenotypes = len(self._phenotypes)
@@ -382,6 +444,10 @@ class LeafNode:
 
         # at init, parent node is unknown, will be updated when building tree
         self._parent_node = None
+
+    @property
+    def lsh_key(self):
+        return self._lsh_key
 
     @property
     def phenotypes(self):
@@ -407,3 +473,9 @@ class LeafNode:
 
         assert (isinstance(node, InternalNode) or isinstance(node, RootNode))
         self._parent_node = node
+
+    def gen_phenotype_matching_map(self, encoding, obs):
+        return {
+            phenotype: encoding.does_phenotype_match(phenotype, obs)
+            for phenotype in self._phenotypes
+        }

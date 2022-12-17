@@ -71,6 +71,9 @@ class VanillaPopulation(PopulationABC):
         macroclassifier."""
         return [clfr for clfr in self._clfrs if clfr.does_match(obs)]
 
+    def gen_matching_trace(self, obs):
+        return [clfr.does_match(obs) for clfr in self._clfrs]
+
 
 class FastMatchingPopulation(PopulationABC):
     """Population that uses an index to perform fast matching."""
@@ -110,9 +113,18 @@ class FastMatchingPopulation(PopulationABC):
         self._index.try_remove_phenotype(clfr.condition.phenotype)
 
     def gen_match_set(self, obs):
-        phenotype_matching_map = \
+        (phenotype_matching_map, _) = \
             self._index.gen_phenotype_matching_map(obs)
         return [
             clfr for clfr in self._clfrs
             if phenotype_matching_map[clfr.condition.phenotype]
         ]
+
+    def gen_matching_trace(self, obs):
+        (phenotype_matching_map, num_matching_ops_done) = \
+            self._index.gen_phenotype_matching_map(obs)
+        trace = [
+            phenotype_matching_map[clfr.condition.phenotype]
+            for clfr in self._clfrs
+        ]
+        return (trace, num_matching_ops_done)
