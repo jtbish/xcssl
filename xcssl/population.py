@@ -1,6 +1,6 @@
 import abc
 
-from .tree import SubsumptionTree
+from .index import SubsumptionForest
 
 
 class PopulationABC(metaclass=abc.ABCMeta):
@@ -77,7 +77,7 @@ class VanillaPopulation(PopulationABC):
 
 class FastMatchingPopulation(PopulationABC):
     """Population that uses an index to perform fast matching."""
-    def __init__(self, vanilla_pop, encoding, lsh):
+    def __init__(self, vanilla_pop, encoding, lsh, genr_cutoff):
         """FastMatchingPopulation needs to be inited from existing
         VanillaPopulation."""
         assert isinstance(vanilla_pop, VanillaPopulation)
@@ -91,10 +91,11 @@ class FastMatchingPopulation(PopulationABC):
         # so that distance calcs can be done for them
         self._vectorise_clfr_phenotypes(self._clfrs)
 
-        self._index = SubsumptionTree(
+        self._index = SubsumptionForest(
             encoding=encoding,
             lsh=lsh,
-            phenotypes=[clfr.condition.phenotype for clfr in self._clfrs])
+            phenotypes=[clfr.condition.phenotype for clfr in self._clfrs],
+            genr_cutoff=genr_cutoff)
 
     def _vectorise_clfr_phenotypes(self, clfrs):
         """Update phenotypes of clfr conditions in place with vectorised

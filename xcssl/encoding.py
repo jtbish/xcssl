@@ -15,6 +15,7 @@ class EncodingABC(metaclass=abc.ABCMeta):
     def __init__(self, obs_space):
         self._obs_space = obs_space
         self._vectorise_phenotypes = False
+        self._max_generality = self._calc_max_generality(self._obs_space)
 
     @property
     def obs_space(self):
@@ -25,6 +26,9 @@ class EncodingABC(metaclass=abc.ABCMeta):
 
     def decode(self, cond_alleles):
         phenotype_elems = self._decode(cond_alleles)
+        return self.make_phenotype(phenotype_elems)
+
+    def make_phenotype(self, phenotype_elems):
         phenotype_generality = self.calc_phenotype_generality(phenotype_elems)
 
         if not self._vectorise_phenotypes:
@@ -41,6 +45,10 @@ class EncodingABC(metaclass=abc.ABCMeta):
     def enable_phenotype_vectorisation(self):
         assert not self._vectorise_phenotypes
         self._vectorise_phenotypes = True
+
+    @abc.abstractmethod
+    def _calc_max_generality(self, obs_space):
+        raise NotImplementedError
 
     @abc.abstractmethod
     def gen_covering_condition(self, obs):
@@ -105,6 +113,9 @@ class TernaryEncoding(EncodingABC):
             assert dim.upper == 1
         super().__init__(obs_space)
 
+    def _calc_max_generality(self, obs_space):
+        return len(self._obs_space)
+
     def gen_covering_condition(self, obs):
         num_alleles = len(self._obs_space)
         assert len(obs) == num_alleles
@@ -124,8 +135,8 @@ class TernaryEncoding(EncodingABC):
         return tuple(cond_alleles)
 
     def calc_phenotype_generality(self, phenotype_elems):
-        """Number of don't care elems."""
-        return phenotype_elems.count(TERNARY_HASH)
+        """Fraction of don't care elems."""
+        return (phenotype_elems.count(TERNARY_HASH) / self._max_generality)
 
     def mutate_condition_alleles(self, cond_alleles, obs):
         mut_alleles = []
@@ -201,8 +212,7 @@ class TernaryEncoding(EncodingABC):
                     # some mixture of zeroes and ones
                     subsumer_elems.append(TERNARY_HASH)
 
-        subsumer_genr = self.calc_phenotype_generality(subsumer_elems)
-        return VanillaPhenotype(subsumer_elems, subsumer_genr)
+        return self.make_phenotype(subsumer_elems)
 
     def make_subsumer_phenotype_and_calc_dist(self, phenotype_a, phenotype_b):
         subsumer_elems = []
@@ -226,8 +236,7 @@ class TernaryEncoding(EncodingABC):
                 # in either case only way to subsume both is with hash
                 subsumer_elems.append(TERNARY_HASH)
 
-        subsumer_genr = self.calc_phenotype_generality(subsumer_elems)
-        subsumer_phenotype = VanillaPhenotype(subsumer_elems, subsumer_genr)
+        subsumer_phenotype = self.make_phenotype(subsumer_elems)
         return (subsumer_phenotype, dist)
 
     def expand_subsumer_phenotype(self, subsumer_phenotype, addee_phenotype):
@@ -247,8 +256,7 @@ class TernaryEncoding(EncodingABC):
 
                 new_subsumer_elems.append(s_elem)
 
-        new_subsumer_genr = self.calc_phenotype_generality(new_subsumer_elems)
-        return VanillaPhenotype(new_subsumer_elems, new_subsumer_genr)
+        return self.make_phenotype(new_subsumer_elems)
 
     def _make_lsh(self, num_dims):
         num_projs = get_hp("lsh_num_projs")
