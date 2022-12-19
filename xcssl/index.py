@@ -1,3 +1,5 @@
+from collections import OrderedDict
+
 from .lsh import distance_between_lsh_keys
 
 _MIN_GENR_CUTOFF_EXCL = 0.0
@@ -69,7 +71,9 @@ class SubsumptionForest:
                 partitions[lsh_key] = [phenotype]
 
         # then make the actual LeafNode objs. from these partitions
-        lsh_key_leaf_node_map = {}
+        # preserve ordering via ordered dict (since ordering used later when
+        # constructing forest)
+        lsh_key_leaf_node_map = OrderedDict()
         for (node_id, (lsh_key, phenotypes)) in enumerate(partitions.items()):
             lsh_key_leaf_node_map[lsh_key] = LeafNode(node_id, phenotypes,
                                                       encoding)
@@ -365,6 +369,8 @@ class SubsumptionForest:
                 stack.append(node.left_child_node)
 
     def gen_sparse_phenotype_matching_map(self, obs):
+
+        # TODO change for forests
 
         res = {}
 
