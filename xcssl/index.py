@@ -2,12 +2,11 @@ from collections import OrderedDict
 
 from .lsh import distance_between_lsh_keys
 
-_MIN_GENR_CUTOFF_EXCL = 0.0
-_MAX_GENR_CUTOFF_INCL = 1.0
+_MIN_NUM_ROOT_NODES = 2
 
 
 class SubsumptionForest:
-    def __init__(self, encoding, lsh, phenotypes, genr_cutoff):
+    def __init__(self, encoding, lsh, phenotypes):
         self._encoding = encoding
         self._lsh = lsh
 
@@ -16,13 +15,9 @@ class SubsumptionForest:
         self._phenotype_lsh_key_map = self._gen_phenotype_lsh_key_map(
             self._lsh, phenotype_set=self._phenotype_count_map.keys())
 
-        assert _MIN_GENR_CUTOFF_EXCL < genr_cutoff <= _MAX_GENR_CUTOFF_INCL
-        self._genr_cutoff = genr_cutoff
-
         (self._lsh_key_leaf_node_map,
          self._root_nodes) = self._make_forest(self._encoding, self._lsh,
-                                               self._phenotype_lsh_key_map,
-                                               self._genr_cutoff)
+                                               self._phenotype_lsh_key_map)
 
     def _init_phenotype_count_map(self, phenotypes):
         phenotype_count_map = {}
@@ -44,7 +39,7 @@ class SubsumptionForest:
             for phenotype in phenotype_set
         }
 
-    def _make_forest(self, encoding, lsh, phenotype_lsh_key_map, genr_cutoff):
+    def _make_forest(self, encoding, lsh, phenotype_lsh_key_map):
         # first, make leaf nodes at bottom of the tree, each identified by
         # their LSH key
         lsh_key_leaf_node_map = \
@@ -52,8 +47,7 @@ class SubsumptionForest:
 
         # next, do HAC on the leaf nodes to build the
         # tree(s) in the forest, each tree reprd. by its root node
-        root_nodes = self._build_trees(lsh_key_leaf_node_map, encoding,
-                                       genr_cutoff)
+        root_nodes = self._build_trees(lsh_key_leaf_node_map, encoding)
 
         return (lsh_key_leaf_node_map, root_nodes)
 
@@ -80,7 +74,7 @@ class SubsumptionForest:
 
         return lsh_key_leaf_node_map
 
-    def _build_trees(self, lsh_key_leaf_node_map, encoding, genr_cutoff):
+    def _build_trees(self, lsh_key_leaf_node_map, encoding):
 
         # make node list by firstly
         # inducing ordering on leaf nodes so they can be referred to by integer
@@ -115,6 +109,7 @@ class SubsumptionForest:
         next_node_id = n
 
         num_merges_done = 0
+        max_generality = encoding.calc_max_generality()
         done = False
 
         while not done:
@@ -122,11 +117,13 @@ class SubsumptionForest:
             self._pretty_print_subsumer_cost_mat(subsumer_cost_mat)
 
             n = len(subsumer_cost_mat)
-            make_internal_node = (n > 2)
+            try_make_merge_node = (n > 2)
 
-            if make_internal_node:
+            if not try_make_merge_node:
+                done = True
 
-                # find min valid cost pair to do merge for
+            else:
+                # find min valid cost pair to do merge for (if any)
                 min_valid_cost = None
                 merge_pair = None
 
@@ -135,10 +132,9 @@ class SubsumptionForest:
 
                 for (node_id_a, node_id_b) in rod_iter:
 
-                    (_, cost) = subsumer_cost_mat[node_id_a][node_id_b]
-                    (genr, _) = cost
+                    (subsumer, cost) = subsumer_cost_mat[node_id_a][node_id_b]
 
-                    is_valid = (genr <= genr_cutoff)
+                    is_valid = (subsumer.generality < max_generality)
 
                     if is_valid:
                         # use tuple ordering here since cost is 2-tuple of
@@ -164,25 +160,25 @@ class SubsumptionForest:
 
                     print(f"{next_node_id} = merge({left_child_node_id}, "
                           f"{right_child_node_id}) @ cost "
-                          f"({min_valid_cost[0]:.2f}, {min_valid_cost[1]})")
+                          f"({min_valid_cost[0]}, {min_valid_cost[1]})")
 
-                    # make new internal node and store it in the node list
+                    # make new node and store it in the node list
                     left_child_node = node_ls[left_child_node_id]
                     right_child_node = node_ls[right_child_node_id]
 
-                    (internal_node_subsumer_phenotype, _) = subsumer_cost_mat[
+                    (merge_node_subsumer_phenotype, _) = subsumer_cost_mat[
                         left_child_node_id][right_child_node_id]
-                    internal_node_height = self._calc_node_height(
+                    merge_node_height = self._calc_merge_node_height(
                         left_child_node, right_child_node)
 
-                    internal_node = InternalNode(
-                        next_node_id, internal_node_height, left_child_node,
-                        right_child_node, internal_node_subsumer_phenotype)
-                    node_ls.append(internal_node)
+                    merge_node = MergeNode(next_node_id, merge_node_height,
+                                           left_child_node, right_child_node,
+                                           merge_node_subsumer_phenotype)
+                    node_ls.append(merge_node)
 
                     # update parent pointers for both children
                     for child_node in (left_child_node, right_child_node):
-                        child_node.parent_node = internal_node
+                        child_node.parent_node = merge_node
 
                     # update the subsumer mat for next iter
                     # first, copy over all the entries for the non merged
@@ -218,7 +214,7 @@ class SubsumptionForest:
                         (subsumer, dist
                          ) = encoding.make_subsumer_phenotype_and_calc_dist(
                              (node_ls[non_merged_node_id]).subsumer_phenotype,
-                             internal_node_subsumer_phenotype)
+                             merge_node_subsumer_phenotype)
 
                         cost = (subsumer.generality, dist)
 
@@ -238,55 +234,13 @@ class SubsumptionForest:
                     subsumer_cost_mat = next_subsumer_cost_mat
                     next_node_id += 1
 
-            else:
-                # only two nodes left to merge, make root node for them
-                # don't need to check genr cutoff since root node is just a
-                # token node with no subsumer phenotype
-                node_ids = list(subsumer_cost_mat.keys())
-                assert len(node_ids) == 2
-
-                left_child_node_id = node_ids[0]
-                right_child_node_id = node_ids[1]
-
-                print(f"Root {next_node_id} = merge({left_child_node_id}, "
-                      f"{right_child_node_id})")
-
-                left_child_node = node_ls[left_child_node_id]
-                right_child_node = node_ls[right_child_node_id]
-
-                # make root node and store it in the node list
-                root_node_height = self._calc_node_height(
-                    left_child_node, right_child_node)
-                root_node = RootNode(next_node_id, root_node_height,
-                                     left_child_node, right_child_node)
-                node_ls.append(root_node)
-
-                # update pointers for children
-                for child_node in (left_child_node, right_child_node):
-                    child_node.parent_node = root_node
-
-                num_merges_done += 1
-                done = True
-
         # now, figure out the root nodes of the tree(s) in the forest
         # to do this, simply examine all nodes in the node list
         # nodes that don't have a parent must be the root of a tree in the
         # forest
         root_nodes = [node for node in node_ls if node.parent_node is None]
 
-        assert len(root_nodes) > 0
-
-        if len(root_nodes) == 1:
-            # single tree
-            assert isinstance(root_nodes[0], RootNode)
-        else:
-            # multiple trees, but none of them should have a RootNode obj.
-            # since this is reserved for the case where the merging procedure
-            # eventually merges all starting LeafNode objs. forming a
-            # forest composed of a single tree
-            for node in root_nodes:
-                assert (isinstance(node, LeafNode)
-                        or isinstance(node, InternalNode))
+        assert len(root_nodes) >= _MIN_NUM_ROOT_NODES
 
         print("\n")
         print(f"Num merges done = {num_merges_done}")
@@ -324,9 +278,9 @@ class SubsumptionForest:
 
         for id_ in sorted_node_ids:
             dict_ = dict(subsumer_cost_mat[id_])
-            dict_[id_] = ("-", (0, 0))
+            dict_[id_] = ("-", ("-", 0))
             costs = [v[1] for (k, v) in sorted(dict_.items())]
-            costs_str = "\t".join([f"({c[0]:.2f}, {c[1]})" for c in costs])
+            costs_str = "\t".join([f"({c[0]}, {c[1]})" for c in costs])
             print(f"{id_}\t|\t{costs_str}")
 
         print("\n")
@@ -346,7 +300,7 @@ class SubsumptionForest:
 
         return rod_iter
 
-    def _calc_node_height(self, left_child_node, right_child_node):
+    def _calc_merge_node_height(self, left_child_node, right_child_node):
         return min(left_child_node.height, right_child_node.height) + 1
 
     def _pretty_print_tree(self, root_node):
@@ -370,65 +324,53 @@ class SubsumptionForest:
 
     def gen_sparse_phenotype_matching_map(self, obs):
 
-        # TODO change for forests
+        sparse_phenotype_matching_map = {}
+        total_num_matching_ops_done = 0
 
-        res = {}
+        # stack based pre-order traversal of each tree in the forest
+        for root_node in self._root_nodes:
 
-        num_matching_ops_done = 0
+            match_cache = {}
 
-        # stack based pre-order traversal of tree(s) in the forest
-        stack = []
-        stack.append(self._root_node.right_child_node)
-        stack.append(self._root_node.left_child_node)
+            stack = []
+            stack.append(root_node)
 
-        while len(stack) > 0:
+            while len(stack) > 0:
 
-            node = stack.pop()
-            is_internal = isinstance(node, InternalNode)
+                node = stack.pop()
+                subsumer_phenotype = node.subsumer_phenotype
 
-            does_match = self._encoding.does_phenotype_match(
-                node.subsumer_phenotype, obs)
+                try:
+                    does_match = match_cache[subsumer_phenotype]
+                except KeyError:
+                    does_match = self._encoding.does_phenotype_match(
+                        subsumer_phenotype, obs)
 
-            num_matching_ops_done += 1
+                    total_num_matching_ops_done += 1
 
-            if is_internal and does_match:
-                # traverse the children
-                stack.append(node.right_child_node)
-                stack.append(node.left_child_node)
-
-            if not is_internal:
+                    if does_match:
+                        # might re-use further down in the tree, so cache
+                        match_cache[subsumer_phenotype] = does_match
 
                 if does_match:
-                    # matching leaf node, so need to check all phenotypes
-                    # contained within it
-                    res.update(
-                        node.gen_phenotype_matching_map(self._encoding, obs))
 
-                    num_matching_ops_done += node.size
+                    if isinstance(node, LeafNode):
 
-                else:
-                    # non-matching leaf node, so all phenotypes contained
-                    # within it also do not match
-                    res.update(
-                        {phenotype: False
-                         for phenotype in node.phenotypes})
+                        (leaf_phenotype_matching_map,
+                         leaf_num_matching_ops_done
+                         ) = node.gen_phenotype_matching_map(
+                             self._encoding, obs, match_cache)
 
-                # in either case, mark the leaf node as checked
-                checked_leaf_node_lsh_keys.add(node.lsh_key)
+                        sparse_phenotype_matching_map.update(
+                            leaf_phenotype_matching_map)
+                        total_num_matching_ops_done += \
+                            leaf_num_matching_ops_done
 
-        # any leaf node lsh keys that weren't checked implicitly did not match
-        # since traversal never reached them
-        for (lsh_key, leaf_node) in self._lsh_key_leaf_node_map.items():
+                    else:
+                        stack.append(node.right_child_node)
+                        stack.append(node.left_child_node)
 
-            if lsh_key not in checked_leaf_node_lsh_keys:
-
-                res.update(
-                    {phenotype: False
-                     for phenotype in leaf_node.phenotypes})
-
-        assert len(res) == len(self._phenotype_count_map)
-
-        return (res, num_matching_ops_done)
+        return (sparse_phenotype_matching_map, total_num_matching_ops_done)
 
     def try_add_phenotype(self, phenotype):
         raise NotImplementedError
@@ -470,56 +412,25 @@ class NodeBase:
 
     @parent_node.setter
     def parent_node(self, node):
+        # should only be used a single time when building a tree
+        # in the forest (if at all)
+        # hence when setting parent node it should be null
+        assert self._parent_node is None
 
-        if isinstance(self, RootNode):
-            raise TypeError("Cannot set parent node for RootNode (by "
-                            "definition)")
-        else:
-            # should only be used a single time when building a tree
-            # in the forest (if at all)
-            # hence when setting parent node it should be null
-            assert self._parent_node is None
-
-            assert (isinstance(node, InternalNode)
-                    or isinstance(node, RootNode))
-            self._parent_node = node
+        assert isinstance(node, MergeNode)
+        self._parent_node = node
 
 
-class RootNode(NodeBase):
-    """RootNode is the top of a tree that results from merging the last two
-    available nodes together.
-    No subsumer phenotype, just left and right pointers to other nodes, i.e.
-    subtrees."""
-    def __init__(self, node_id, height, left_child_node, right_child_node):
-        super().__init__(node_id, height)
-
-        for node in (left_child_node, right_child_node):
-            assert (isinstance(node, LeafNode)
-                    or isinstance(node, InternalNode))
-
-        self._left_child_node = left_child_node
-        self._right_child_node = right_child_node
-
-    @property
-    def left_child_node(self):
-        return self._left_child_node
-
-    @property
-    def right_child_node(self):
-        return self._right_child_node
-
-
-class InternalNode(NodeBase):
-    """InternalNode is a bounding volume with left and right pointers
-    to either other InternalNode or LeafNode objs."""
+class MergeNode(NodeBase):
+    """MergeNode is a bounding volume with left and right pointers
+    to either other MergeNode or LeafNode objs."""
     def __init__(self, node_id, height, left_child_node, right_child_node,
                  subsumer_phenotype):
 
         super().__init__(node_id, height)
 
         for node in (left_child_node, right_child_node):
-            assert (isinstance(node, LeafNode)
-                    or isinstance(node, InternalNode))
+            assert (isinstance(node, LeafNode) or isinstance(node, MergeNode))
 
         self._left_child_node = left_child_node
         self._right_child_node = right_child_node
@@ -574,8 +485,27 @@ class LeafNode(NodeBase):
     def subsumer_phenotype(self):
         return self._subsumer_phenotype
 
-    def gen_phenotype_matching_map(self, encoding, obs):
-        return {
-            phenotype: encoding.does_phenotype_match(phenotype, obs)
-            for phenotype in self._phenotypes
-        }
+    def gen_phenotype_matching_map(self, encoding, obs, match_cache=None):
+        if match_cache is None:
+
+            phenotype_matching_map = {
+                phenotype: encoding.does_phenotype_match(phenotype, obs)
+                for phenotype in self._phenotypes
+            }
+            num_matching_ops_done = len(phenotype_matching_map)
+
+        else:
+
+            phenotype_matching_map = {}
+            num_matching_ops_done = 0
+
+            for phenotype in self._phenotypes:
+                try:
+                    does_match = match_cache[phenotype]
+                except KeyError:
+                    does_match = encoding.does_phenotype_match(phenotype, obs)
+                    num_matching_ops_done += 1
+
+                phenotype_matching_map[phenotype] = does_match
+
+        return (phenotype_matching_map, num_matching_ops_done)

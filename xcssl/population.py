@@ -77,7 +77,7 @@ class VanillaPopulation(PopulationABC):
 
 class FastMatchingPopulation(PopulationABC):
     """Population that uses an index to perform fast matching."""
-    def __init__(self, vanilla_pop, encoding, lsh, genr_cutoff):
+    def __init__(self, vanilla_pop, encoding, lsh):
         """FastMatchingPopulation needs to be inited from existing
         VanillaPopulation."""
         assert isinstance(vanilla_pop, VanillaPopulation)
@@ -94,8 +94,7 @@ class FastMatchingPopulation(PopulationABC):
         self._index = SubsumptionForest(
             encoding=encoding,
             lsh=lsh,
-            phenotypes=[clfr.condition.phenotype for clfr in self._clfrs],
-            genr_cutoff=genr_cutoff)
+            phenotypes=[clfr.condition.phenotype for clfr in self._clfrs])
 
     def _vectorise_clfr_phenotypes(self, clfrs):
         """Update phenotypes of clfr conditions in place with vectorised
@@ -114,18 +113,21 @@ class FastMatchingPopulation(PopulationABC):
         self._index.try_remove_phenotype(clfr.condition.phenotype)
 
     def gen_match_set(self, obs):
-        (phenotype_matching_map, _) = \
-            self._index.gen_phenotype_matching_map(obs)
+        (sparse_phenotype_matching_map, _) = \
+            self._index.gen_sparse_phenotype_matching_map(obs)
+
         return [
-            clfr for clfr in self._clfrs
-            if phenotype_matching_map[clfr.condition.phenotype]
+            clfr for clfr in self._clfrs if sparse_phenotype_matching_map.get(
+                clfr.condition.phenotype, False)
         ]
 
     def gen_matching_trace(self, obs):
-        (phenotype_matching_map, num_matching_ops_done) = \
-            self._index.gen_phenotype_matching_map(obs)
+        (sparse_phenotype_matching_map, num_matching_ops_done) = \
+            self._index.gen_sparse_phenotype_matching_map(obs)
+
         trace = [
-            phenotype_matching_map[clfr.condition.phenotype]
+            sparse_phenotype_matching_map.get(clfr.condition.phenotype, False)
             for clfr in self._clfrs
         ]
+
         return (trace, num_matching_ops_done)

@@ -170,8 +170,10 @@ class XCS:
                 self._encoding.enable_phenotype_vectorisation()
 
                 # replace vanilla pop with FM pop
+                lsh = self._encoding.make_lsh()
                 self._pop = FastMatchingPopulation(vanilla_pop=self._pop,
-                                                   encoding=self._encoding)
+                                                   encoding=self._encoding,
+                                                   lsh=lsh)
 
     def select_action(self, obs):
         """Action selection for outside testing - always exploit"""

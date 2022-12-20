@@ -15,7 +15,6 @@ class EncodingABC(metaclass=abc.ABCMeta):
     def __init__(self, obs_space):
         self._obs_space = obs_space
         self._vectorise_phenotypes = False
-        self._max_generality = self._calc_max_generality(self._obs_space)
 
     @property
     def obs_space(self):
@@ -47,7 +46,7 @@ class EncodingABC(metaclass=abc.ABCMeta):
         self._vectorise_phenotypes = True
 
     @abc.abstractmethod
-    def _calc_max_generality(self, obs_space):
+    def calc_max_generality(self):
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -113,7 +112,7 @@ class TernaryEncoding(EncodingABC):
             assert dim.upper == 1
         super().__init__(obs_space)
 
-    def _calc_max_generality(self, obs_space):
+    def calc_max_generality(self):
         return len(self._obs_space)
 
     def gen_covering_condition(self, obs):
@@ -135,8 +134,8 @@ class TernaryEncoding(EncodingABC):
         return tuple(cond_alleles)
 
     def calc_phenotype_generality(self, phenotype_elems):
-        """Fraction of don't care elems."""
-        return (phenotype_elems.count(TERNARY_HASH) / self._max_generality)
+        """Number of don't care elems."""
+        return phenotype_elems.count(TERNARY_HASH)
 
     def mutate_condition_alleles(self, cond_alleles, obs):
         mut_alleles = []
