@@ -93,7 +93,7 @@ class EncodingABC(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def expand_subsumer_phenotype(self, subsumer_phenotype, addee_phenotype):
+    def expand_subsumer_phenotype(self, subsumer_phenotype, new_phenotype):
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -238,11 +238,11 @@ class TernaryEncoding(EncodingABC):
         subsumer_phenotype = self.make_phenotype(subsumer_elems)
         return (subsumer_phenotype, dist)
 
-    def expand_subsumer_phenotype(self, subsumer_phenotype, addee_phenotype):
+    def expand_subsumer_phenotype(self, subsumer_phenotype, new_phenotype):
 
         new_subsumer_elems = []
 
-        for (s_elem, a_elem) in zip(subsumer_phenotype, addee_phenotype):
+        for (s_elem, a_elem) in zip(subsumer_phenotype, new_phenotype):
 
             if s_elem != TERNARY_HASH:
 
