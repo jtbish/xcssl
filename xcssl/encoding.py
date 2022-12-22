@@ -242,18 +242,21 @@ class TernaryEncoding(EncodingABC):
 
         new_subsumer_elems = []
 
-        for (s_elem, a_elem) in zip(subsumer_phenotype, new_phenotype):
+        for (s_elem, n_elem) in zip(subsumer_phenotype, new_phenotype):
 
             if s_elem != TERNARY_HASH:
+                # s_elem either 0 or 1
 
-                if s_elem != a_elem:
+                if s_elem != n_elem:
+                    # 0/1 or 1/0, either way can only subsume with hash
                     new_subsumer_elems.append(TERNARY_HASH)
                 else:
-                    new_subsumer_elems.append(s_elem)
+                    # 0/0 or 1/1, either way subsume with current val
+                    new_subsumer_elems.append(n_elem)
 
             else:
 
-                new_subsumer_elems.append(s_elem)
+                new_subsumer_elems.append(TERNARY_HASH)
 
         return self.make_phenotype(new_subsumer_elems)
 

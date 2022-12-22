@@ -123,9 +123,8 @@ class SubsumptionForest:
 
         num_merges_done = 0
         max_generality = encoding.calc_max_generality()
-        done = False
 
-        while not done:
+        while True:
 
             #self._pretty_print_subsumer_cost_mat(subsumer_cost_mat)
 
@@ -133,7 +132,7 @@ class SubsumptionForest:
             try_make_merge_node = (n > 2)
 
             if not try_make_merge_node:
-                done = True
+                break
 
             else:
                 # find min valid cost pair to do merge for (if any)
@@ -163,7 +162,7 @@ class SubsumptionForest:
 
                 if not merge_possible:
                     # terminate early
-                    done = True
+                    break
 
                 else:
                     # make the node for the merge and update the subsumer cost
@@ -429,6 +428,8 @@ class SubsumptionForest:
         count = self._phenotype_count_map[phenotype]
         count -= 1
 
+        assert count >= 0
+
         do_remove = (count == 0)
 
         if do_remove:
@@ -455,13 +456,15 @@ class SubsumptionForest:
         # doesn't matter anyway since checking it will be skipped
         # when gening the sparse phenotype map (as there is a check for empty
         # nodes in there).
+        # also... want to keep the tree structure fixed as-is until rebuilding
+        # it at some point in the future
         if (leaf_node.node_id in self._node_id_root_node_map.keys()
                 and leaf_node.is_empty()):
             del self._node_id_root_node_map[leaf_node.node_id]
 
     def _try_rebuild_forest(self):
         should_rebuild_forest = \
-            (self._num_adds_and_removes - self._last_forest_build_step) > \
+            (self._num_adds_and_removes - self._last_forest_build_step) >= \
             self._theta_clust
 
         if should_rebuild_forest:
@@ -558,7 +561,7 @@ class MergeNode(NodeABC):
         return self._right_child_node
 
     def is_empty(self):
-        # by definition
+        # by definition: has two children
         return False
 
 
@@ -596,71 +599,102 @@ class LeafNode(NodeABC):
     def is_empty(self):
         return self._num_phenotypes == 0
 
-    def gen_phenotype_matching_map(self, encoding, obs, match_cache=None):
-        if match_cache is None:
+    def gen_phenotype_matching_map(self, encoding, obs, match_cache):
 
-            phenotype_matching_map = {
-                phenotype: encoding.does_phenotype_match(phenotype, obs)
-                for phenotype in self._phenotypes
-            }
-            num_matching_ops_done = len(phenotype_matching_map)
+        phenotype_matching_map = {}
+        num_matching_ops_done = 0
 
-        else:
+        for phenotype in self._phenotypes:
+            try:
+                does_match = match_cache[phenotype]
+            except KeyError:
+                does_match = encoding.does_phenotype_match(phenotype, obs)
+                num_matching_ops_done += 1
 
-            phenotype_matching_map = {}
-            num_matching_ops_done = 0
-
-            for phenotype in self._phenotypes:
-                try:
-                    does_match = match_cache[phenotype]
-                except KeyError:
-                    does_match = encoding.does_phenotype_match(phenotype, obs)
-                    num_matching_ops_done += 1
-
-                phenotype_matching_map[phenotype] = does_match
+            phenotype_matching_map[phenotype] = does_match
 
         return (phenotype_matching_map, num_matching_ops_done)
 
     def add(self, addee, encoding):
         self._phenotypes.append(addee)
         self._num_phenotypes += 1
+        # TODO remove
+        assert len(self._phenotypes) == self._num_phenotypes
 
-        # check if the addee is already subsumed by the subsumer
-        # phenotype of the leaf node. if it is, don't need to do anything else
-        addee_is_subsumed = encoding.does_subsume(
-            phenotype_a=self._subsumer_phenotype, phenotype_b=addee)
+        assert self._num_phenotypes >= 1
 
-        if not addee_is_subsumed:
-            # expand the leaf node subsumer phenotype to accommodate the addee
-            new_subsumer_phenotype = encoding.expand_subsumer_phenotype(
-                subsumer_phenotype=self._subsumer_phenotype,
-                new_phenotype=addee)
-            self._subsumer_phenotype = new_subsumer_phenotype
+        try_adjust_parents = None
+        do_leaf_subsumer_expand = None
+
+        if self._num_phenotypes == 1:
+            # just added a new phenotype into previously empty leaf node,
+            # so subsumer should currently be null.
+            # update it to subsume the sole member
+            assert self._subsumer_phenotype is None
+            self._subsumer_phenotype = self._phenotypes[0]
+            try_adjust_parents = True
+            do_leaf_subsumer_expand = False
+
+        else:
+
+            # check if the addee is already subsumed by the (non-null) subsumer
+            # phenotype of the leaf node. if it is, don't need to do anything
+            addee_is_subsumed = encoding.does_subsume(
+                phenotype_a=self._subsumer_phenotype, phenotype_b=addee)
+            try_adjust_parents = not addee_is_subsumed
+            do_leaf_subsumer_expand = True
+
+        assert try_adjust_parents is not None
+        assert do_leaf_subsumer_expand is not None
+
+        if try_adjust_parents:
+
+            if do_leaf_subsumer_expand:
+                # expand the leaf node subsumer phenotype to accommodate the
+                # new addee
+                new_leaf_subsumer = encoding.expand_subsumer_phenotype(
+                    subsumer_phenotype=self._subsumer_phenotype,
+                    new_phenotype=addee)
+
+                # TODO remove
+                assert encoding.does_subsume(
+                    phenotype_a=new_leaf_subsumer,
+                    phenotype_b=self._subsumer_phenotype)
+
+                self._subsumer_phenotype = new_leaf_subsumer
 
             # percolate the change up the tree this leaf node belongs to
             curr_node = self
-            done = False
 
-            while not done:
+            while True:
                 parent_node = curr_node.parent_node
 
                 if parent_node is None:
-                    done = True
+                    # reached the root
+                    break
 
                 else:
+                    # check parent subsumption and expand if necessary
                     parent_subsumer = parent_node.subsumer_phenotype
                     curr_subsumer = curr_node.subsumer_phenotype
+
                     parent_does_subsume = encoding.does_subsume(
                         phenotype_a=parent_subsumer, phenotype_b=curr_subsumer)
 
                     if parent_does_subsume:
-                        done = True
+                        break
 
                     else:
                         new_parent_subsumer = \
                             encoding.expand_subsumer_phenotype(
                                 subsumer_phenotype=parent_subsumer,
                                 new_phenotype=curr_subsumer)
+
+                        # TODO remove
+                        assert encoding.does_subsume(
+                            phenotype_a=new_parent_subsumer,
+                            phenotype_b=parent_subsumer)
+
                         parent_node.subsumer_phenotype = new_parent_subsumer
 
                         curr_node = parent_node
@@ -668,4 +702,15 @@ class LeafNode(NodeABC):
     def remove(self, removee):
         self._phenotypes.remove(removee)
         self._num_phenotypes -= 1
+        # TODO remove
+        assert len(self._phenotypes) == self._num_phenotypes
+
         assert self._num_phenotypes >= 0
+
+        if self._num_phenotypes == 0:
+            # make null
+            self._subsumer_phenotype = None
+
+        elif self._num_phenotypes == 1:
+            # shrink to subsume the single member
+            self._subsumer_phenotype = self._phenotypes[0]

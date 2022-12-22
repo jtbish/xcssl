@@ -1,7 +1,6 @@
 import abc
 
-from .hyperparams import get_hyperparam as get_hp
-from .index import SubsumptionForest
+from .partitioning import LSHPartitioning
 
 
 class PopulationABC(metaclass=abc.ABCMeta):
@@ -92,11 +91,10 @@ class FastMatchingPopulation(PopulationABC):
         # so that distance calcs can be done for them
         self._vectorise_clfr_phenotypes(self._clfrs)
 
-        self._index = SubsumptionForest(
+        self._index = LSHPartitioning(
             encoding=encoding,
             lsh=lsh,
-            phenotypes=[clfr.condition.phenotype for clfr in self._clfrs],
-            theta_clust=get_hp("sf_theta_clust"))
+            phenotypes=[clfr.condition.phenotype for clfr in self._clfrs])
 
     def _vectorise_clfr_phenotypes(self, clfrs):
         """Update phenotypes of clfr conditions in place with vectorised
