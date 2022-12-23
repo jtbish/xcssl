@@ -7,14 +7,13 @@ from .hyperparams import get_hyperparam as get_hp
 from .interval import IntegerInterval, RealInterval
 from .lsh import EuclideanLSH, HammingLSH
 from .obs_space import IntegerObsSpace, RealObsSpace
-from .phenotype import IndexablePhenotype, VanillaPhenotype
+from .phenotype import VanillaPhenotype
 from .rng import get_rng
 
 
 class EncodingABC(metaclass=abc.ABCMeta):
     def __init__(self, obs_space):
         self._obs_space = obs_space
-        self._make_phenotypes_indexable = False
 
     @property
     def obs_space(self):
@@ -25,22 +24,14 @@ class EncodingABC(metaclass=abc.ABCMeta):
 
     def decode(self, cond_alleles):
         phenotype_elems = self._decode(cond_alleles)
-        return self.make_phenotype(phenotype_elems,
-                                   indexable=self._make_phenotypes_indexable)
+        return self.make_phenotype(phenotype_elems)
 
-    def make_phenotype(self, phenotype_elems, indexable):
-        if not indexable:
-            return VanillaPhenotype(phenotype_elems)
-        else:
-            return IndexablePhenotype(phenotype_elems)
+    def make_phenotype(self, phenotype_elems):
+        return VanillaPhenotype(phenotype_elems)
 
     def make_lsh(self):
         num_dims = self.calc_num_phenotype_vec_dims()
         return self._make_lsh(num_dims)
-
-    def enable_phenotype_indexation(self):
-        assert not self._make_phenotypes_indexable
-        self._make_phenotypes_indexable = True
 
     @abc.abstractmethod
     def calc_max_generality(self):
@@ -208,7 +199,7 @@ class TernaryEncoding(EncodingABC):
                     # some mixture of zeroes and ones
                     subsumer_elems.append(TERNARY_HASH)
 
-        return self.make_phenotype(subsumer_elems, indexable=False)
+        return self.make_phenotype(subsumer_elems)
 
     def make_subsumer_phenotype_and_calc_dist(self, phenotype_a, phenotype_b):
         subsumer_elems = []
@@ -232,8 +223,7 @@ class TernaryEncoding(EncodingABC):
                 # in either case only way to subsume both is with hash
                 subsumer_elems.append(TERNARY_HASH)
 
-        subsumer_phenotype = self.make_phenotype(subsumer_elems,
-                                                 indexable=False)
+        subsumer_phenotype = self.make_phenotype(subsumer_elems)
         return (subsumer_phenotype, dist)
 
     def expand_subsumer_phenotype(self, subsumer_phenotype, new_phenotype):
@@ -256,7 +246,7 @@ class TernaryEncoding(EncodingABC):
 
                 new_subsumer_elems.append(TERNARY_HASH)
 
-        return self.make_phenotype(new_subsumer_elems, indexable=False)
+        return self.make_phenotype(new_subsumer_elems)
 
     def _make_lsh(self, num_dims):
         num_projs = get_hp("lsh_num_projs")

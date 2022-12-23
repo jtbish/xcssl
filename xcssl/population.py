@@ -112,6 +112,8 @@ class FastMatchingPopulation(PopulationABC):
         assert op in ("covering", "insertion")
         self._ops_history[op] += clfr.numerosity
 
+        # make indexable, and try add to index
+        clfr.condition.convert_to_indexable_phenotype()
         self._index.try_add_phenotype(clfr.condition.phenotype)
 
     def remove(self, clfr, op=None):
