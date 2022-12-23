@@ -7,14 +7,14 @@ from .hyperparams import get_hyperparam as get_hp
 from .interval import IntegerInterval, RealInterval
 from .lsh import EuclideanLSH, HammingLSH
 from .obs_space import IntegerObsSpace, RealObsSpace
-from .phenotype import VanillaPhenotype, VectorisedPhenotype
+from .phenotype import IndexablePhenotype, VanillaPhenotype
 from .rng import get_rng
 
 
 class EncodingABC(metaclass=abc.ABCMeta):
     def __init__(self, obs_space):
         self._obs_space = obs_space
-        self._vectorise_phenotypes = False
+        self._make_phenotypes_indexable = False
 
     @property
     def obs_space(self):
@@ -25,25 +25,22 @@ class EncodingABC(metaclass=abc.ABCMeta):
 
     def decode(self, cond_alleles):
         phenotype_elems = self._decode(cond_alleles)
-        return self.make_phenotype(phenotype_elems)
+        return self.make_phenotype(phenotype_elems,
+                                   indexable=self._make_phenotypes_indexable)
 
-    def make_phenotype(self, phenotype_elems):
-        phenotype_generality = self.calc_phenotype_generality(phenotype_elems)
-
-        if not self._vectorise_phenotypes:
-            return VanillaPhenotype(phenotype_elems, phenotype_generality)
+    def make_phenotype(self, phenotype_elems, indexable):
+        if not indexable:
+            return VanillaPhenotype(phenotype_elems)
         else:
-            phenotype_vec = self.gen_phenotype_vec(phenotype_elems)
-            return VectorisedPhenotype(phenotype_elems, phenotype_generality,
-                                       phenotype_vec)
+            return IndexablePhenotype(phenotype_elems)
 
     def make_lsh(self):
         num_dims = self.calc_num_phenotype_vec_dims()
         return self._make_lsh(num_dims)
 
-    def enable_phenotype_vectorisation(self):
-        assert not self._vectorise_phenotypes
-        self._vectorise_phenotypes = True
+    def enable_phenotype_indexation(self):
+        assert not self._make_phenotypes_indexable
+        self._make_phenotypes_indexable = True
 
     @abc.abstractmethod
     def calc_max_generality(self):
@@ -59,7 +56,7 @@ class EncodingABC(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def calc_phenotype_generality(self, phenotype_elems):
+    def calc_phenotype_generality(self, phenotype):
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -133,9 +130,9 @@ class TernaryEncoding(EncodingABC):
         # genotype == phenotype
         return tuple(cond_alleles)
 
-    def calc_phenotype_generality(self, phenotype_elems):
+    def calc_phenotype_generality(self, phenotype):
         """Number of don't care elems."""
-        return phenotype_elems.count(TERNARY_HASH)
+        return phenotype.elems.count(TERNARY_HASH)
 
     def mutate_condition_alleles(self, cond_alleles, obs):
         mut_alleles = []
@@ -211,7 +208,7 @@ class TernaryEncoding(EncodingABC):
                     # some mixture of zeroes and ones
                     subsumer_elems.append(TERNARY_HASH)
 
-        return self.make_phenotype(subsumer_elems)
+        return self.make_phenotype(subsumer_elems, indexable=False)
 
     def make_subsumer_phenotype_and_calc_dist(self, phenotype_a, phenotype_b):
         subsumer_elems = []
@@ -235,7 +232,8 @@ class TernaryEncoding(EncodingABC):
                 # in either case only way to subsume both is with hash
                 subsumer_elems.append(TERNARY_HASH)
 
-        subsumer_phenotype = self.make_phenotype(subsumer_elems)
+        subsumer_phenotype = self.make_phenotype(subsumer_elems,
+                                                 indexable=False)
         return (subsumer_phenotype, dist)
 
     def expand_subsumer_phenotype(self, subsumer_phenotype, new_phenotype):
@@ -258,7 +256,7 @@ class TernaryEncoding(EncodingABC):
 
                 new_subsumer_elems.append(TERNARY_HASH)
 
-        return self.make_phenotype(new_subsumer_elems)
+        return self.make_phenotype(new_subsumer_elems, indexable=False)
 
     def _make_lsh(self, num_dims):
         num_projs = get_hp("lsh_num_projs")
@@ -302,7 +300,7 @@ class UnorderedBoundEncodingABC(EncodingABC, metaclass=abc.ABCMeta):
         return phenotype
 
     @abc.abstractmethod
-    def calc_phenotype_generality(self, phenotype_elems):
+    def calc_phenotype_generality(self, phenotype):
         raise NotImplementedError
 
     def mutate_condition_alleles(self, cond_alleles, obs=None):
@@ -372,10 +370,10 @@ class IntegerUnorderedBoundEncoding(UnorderedBoundEncodingABC):
         upper = min(upper, dim.upper)
         return (lower, upper)
 
-    def calc_phenotype_generality(self, phenotype_elems):
+    def calc_phenotype_generality(self, phenotype):
         # condition generality calc as in
         # Wilson '00 Mining Oblique Data with XCS
-        cond_intervals = phenotype_elems
+        cond_intervals = phenotype.elems
         numer = sum([interval.span for interval in cond_intervals])
         denom = sum([dim.span for dim in self._obs_space])
         generality = numer / denom
@@ -412,8 +410,8 @@ class RealUnorderedBoundEncoding(UnorderedBoundEncodingABC):
         upper = min(upper, dim.upper)
         return (lower, upper)
 
-    def calc_phenotype_generality(self, phenotype_elems):
-        cond_intervals = phenotype_elems
+    def calc_phenotype_generality(self, phenotype):
+        cond_intervals = phenotype.elems
         numer = sum([interval.span for interval in cond_intervals])
         denom = sum([dim for dim in self._obs_space])
         generality = numer / denom

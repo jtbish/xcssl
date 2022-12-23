@@ -6,7 +6,9 @@ class LSHPartitioning:
         self._phenotype_count_map = self._init_phenotype_count_map(phenotypes)
 
         self._phenotype_lsh_key_map = self._gen_phenotype_lsh_key_map(
-            self._lsh, phenotype_set=self._phenotype_count_map.keys())
+            self._encoding,
+            self._lsh,
+            phenotype_set=self._phenotype_count_map.keys())
 
         self._lsh_key_partition_map = self._gen_lsh_key_partition_map(
             self._phenotype_lsh_key_map, self._encoding)
@@ -22,64 +24,97 @@ class LSHPartitioning:
 
         return phenotype_count_map
 
-    def _gen_phenotype_lsh_key_map(self, lsh, phenotype_set):
+    def _gen_phenotype_lsh_key_map(self, encoding, lsh, phenotype_set):
         """Generates the LSH hash/key for each phenotype
         (assumes hasher is using a single band)."""
 
-        return {
-            phenotype: lsh.hash(phenotype.vec)
-            for phenotype in phenotype_set
-        }
+        phenotype_lsh_key_map = {}
+
+        for phenotype in phenotype_set:
+            # first, make vectorised repr of phenotype so it can be hashed by
+            # LSH
+            vec = encoding.gen_phenotype_vec(phenotype.elems)
+            phenotype.vec = vec
+            phenotype_lsh_key_map[phenotype] = lsh.hash(vec)
+
+        return phenotype_lsh_key_map
 
     def _gen_lsh_key_partition_map(self, phenotype_lsh_key_map, encoding):
         """Generates the mapping between LSH keys and Partition objs."""
-        # first partition the phenotypes into LSH key buckets as lists
+        # first partition the phenotypes into LSH key buckets as sets
         partitions = {}
 
         for (phenotype, lsh_key) in phenotype_lsh_key_map.items():
             # try add phenotype to existing partition, else make new partition
             try:
-                partitions[lsh_key].append(phenotype)
+                partitions[lsh_key].add(phenotype)
             except KeyError:
-                partitions[lsh_key] = [phenotype]
+                partitions[lsh_key] = {phenotype}
 
         # then make the actual Partition objs. from these
         lsh_key_partition_map = {}
-        for (lsh_key, phenotypes) in partitions.items():
-            lsh_key_partition_map[lsh_key] = Partition(phenotypes, encoding)
+        for (lsh_key, phenotype_set) in partitions.items():
+            lsh_key_partition_map[lsh_key] = Partition(phenotype_set, encoding)
 
         return lsh_key_partition_map
 
     def gen_sparse_phenotype_matching_map(self, obs):
 
         sparse_phenotype_matching_map = {}
+
+        for partition in self._lsh_key_partition_map.values():
+
+            subsumer = partition.subsumer_phenotype
+
+            subsumer_does_match = self._encoding.does_phenotype_match(
+                subsumer, obs)
+
+            if subsumer_does_match:
+
+                if partition.size == 1:
+                    # don't need to check the sole member of the partition
+                    # since it is identical to the subsumer
+
+                    sparse_phenotype_matching_map[subsumer] = True
+
+                else:
+                    # otherwise, need to check all members of the partition
+
+                    sparse_phenotype_matching_map.update(
+                        partition.gen_phenotype_matching_map(
+                            self._encoding, obs))
+
+        return sparse_phenotype_matching_map
+
+    def gen_matching_trace(self, obs):
+
+        sparse_phenotype_matching_map = {}
         num_matching_ops_done = 0
 
         for partition in self._lsh_key_partition_map.values():
 
-            subsumer_does_match = self._encoding.does_phenotype_match(
-                partition.subsumer_phenotype, obs)
+            subsumer = partition.subsumer_phenotype
 
+            subsumer_does_match = self._encoding.does_phenotype_match(
+                subsumer, obs)
             num_matching_ops_done += 1
 
             if subsumer_does_match:
 
                 if partition.size == 1:
                     # don't need to check the sole member of the partition
-                    # since it will be equal to the subsumer
+                    # since it is identical to the subsumer
 
-                    sparse_phenotype_matching_map[
-                        partition.subsumer_phenotype] = subsumer_does_match
+                    sparse_phenotype_matching_map[subsumer] = True
 
                 else:
-
-                    (partition_matching_map, partition_num_matching_ops
-                     ) = partition.gen_phenotype_matching_map(
-                         self._encoding, obs)
+                    # otherwise, need to check all members of the partition
 
                     sparse_phenotype_matching_map.update(
-                        partition_matching_map)
-                    num_matching_ops_done += partition_num_matching_ops
+                        partition.gen_phenotype_matching_map(
+                            self._encoding, obs))
+
+                    num_matching_ops_done += partition.size
 
         return (sparse_phenotype_matching_map, num_matching_ops_done)
 
@@ -96,21 +131,25 @@ class LSHPartitioning:
             self._add_phenotype(phenotype)
 
     def _add_phenotype(self, addee):
-        lsh_key = self._lsh.hash(addee.vec)
+        # calc and set vec for addee
+        vec = self._encoding.gen_phenotype_vec(addee.elems)
+        addee.vec = vec
+
+        # then calc lsh key
+        lsh_key = self._lsh.hash(vec)
         self._phenotype_lsh_key_map[addee] = lsh_key
 
         # try to add to existing partition, else make new partition
         try:
             (self._lsh_key_partition_map[lsh_key]).add(addee, self._encoding)
         except KeyError:
-            partition = Partition(phenotypes=[addee], encoding=self._encoding)
+            partition = Partition(phenotype_set={addee},
+                                  encoding=self._encoding)
             self._lsh_key_partition_map[lsh_key] = partition
 
     def try_remove_phenotype(self, phenotype):
         count = self._phenotype_count_map[phenotype]
         count -= 1
-
-        assert count >= 0
 
         do_remove = (count == 0)
 
@@ -126,32 +165,35 @@ class LSHPartitioning:
         del self._phenotype_lsh_key_map[removee]
 
         partition = self._lsh_key_partition_map[lsh_key]
-        partition.remove(removee, self._encoding)
 
-        if partition.size == 0:
+        if partition.size == 1:
+            # delete the partition entirely since removing removee will cause
+            # size to be zero
             del self._lsh_key_partition_map[lsh_key]
+        else:
+            partition.remove(removee, self._encoding)
 
 
 class Partition:
-    def __init__(self, phenotypes, encoding):
-        self._phenotypes = phenotypes
+    def __init__(self, phenotype_set, encoding):
+        self._phenotype_set = phenotype_set
 
-        self._num_phenotypes = len(self._phenotypes)
+        self._num_phenotypes = len(self._phenotype_set)
 
         if self._num_phenotypes == 1:
             # sole member of the partition is the subsumer
-            self._subsumer_phenotype = self._phenotypes[0]
+            self._subsumer_phenotype = (list(self._phenotype_set))[0]
 
         elif self._num_phenotypes > 1:
             self._subsumer_phenotype = \
-                encoding.make_subsumer_phenotype(self._phenotypes)
+                encoding.make_subsumer_phenotype(self._phenotype_set)
 
         else:
             assert False
 
     @property
-    def phenotypes(self):
-        return self._phenotypes
+    def phenotype_set(self):
+        return self._phenotype_set
 
     @property
     def size(self):
@@ -162,27 +204,20 @@ class Partition:
         return self._subsumer_phenotype
 
     def gen_phenotype_matching_map(self, encoding, obs):
-        phenotype_matching_map = {
+        return {
             phenotype: encoding.does_phenotype_match(phenotype, obs)
-            for phenotype in self._phenotypes
+            for phenotype in self._phenotype_set
         }
-        num_matching_ops_done = len(phenotype_matching_map)
-
-        return (phenotype_matching_map, num_matching_ops_done)
 
     def add(self, addee, encoding):
-        self._phenotypes.append(addee)
+        self._phenotype_set.add(addee)
         self._num_phenotypes += 1
-        # TODO remove
-        assert len(self._phenotypes) == self._num_phenotypes
-
-        assert self._num_phenotypes >= 1
 
         addee_is_subsumed = encoding.does_subsume(
             phenotype_a=self._subsumer_phenotype, phenotype_b=addee)
 
         if not addee_is_subsumed:
-
+            # expand the subsumer to fit the addee
             new_subsumer = encoding.expand_subsumer_phenotype(
                 subsumer_phenotype=self._subsumer_phenotype,
                 new_phenotype=addee)
@@ -190,18 +225,15 @@ class Partition:
             self._subsumer_phenotype = new_subsumer
 
     def remove(self, removee, encoding):
-        self._phenotypes.remove(removee)
+        self._phenotype_set.remove(removee)
         self._num_phenotypes -= 1
-        # TODO remove
-        assert len(self._phenotypes) == self._num_phenotypes
-
-        assert self._num_phenotypes >= 0
 
         if self._num_phenotypes == 1:
-            # shrink subsumer to be the sole member
-            self._subsumer_phenotype = self._phenotypes[0]
+            # shrink subsumer to be equal to the (now) sole member of the
+            # partition
+            self._subsumer_phenotype = (list(self._phenotype_set))[0]
 
         elif self._num_phenotypes > 1:
             # shrink subsumer to fit the remaining members
             self._subsumer_phenotype = \
-                encoding.make_subsumer_phenotype(self._phenotypes)
+                encoding.make_subsumer_phenotype(self._phenotype_set)

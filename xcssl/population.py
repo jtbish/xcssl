@@ -50,6 +50,10 @@ class PopulationABC(metaclass=abc.ABCMeta):
     def gen_match_set(self, obs):
         raise NotImplementedError
 
+    @abc.abstractmethod
+    def gen_matching_trace(self, obs):
+        raise NotImplementedError
+
 
 class VanillaPopulation(PopulationABC):
     """Default-style population that does not use phenotype clustering and
@@ -87,33 +91,41 @@ class FastMatchingPopulation(PopulationABC):
         self._ops_history = vanilla_pop._ops_history
 
         # make the phenotype index
-        # first, vectorise all the condition phenotype in the pop
-        # so that distance calcs can be done for them
-        self._vectorise_clfr_phenotypes(self._clfrs)
+        # first, make all the condition phenotype in the pop indexable
+        self._make_clfr_phenotypes_indexable(self._clfrs)
 
         self._index = LSHPartitioning(
             encoding=encoding,
             lsh=lsh,
             phenotypes=[clfr.condition.phenotype for clfr in self._clfrs])
 
-    def _vectorise_clfr_phenotypes(self, clfrs):
-        """Update phenotypes of clfr conditions in place with vectorised
+    def _make_clfr_phenotypes_indexable(self, clfrs):
+        """Update phenotypes of clfr conditions in place with indexable
         variants."""
         for clfr in clfrs:
-            clfr.condition.vectorise_phenotype()
+            clfr.condition.convert_to_indexable_phenotype()
 
     def add_new(self, clfr, op, time_step=None):
-        super().add_new(clfr, op, time_step)
+        #super().add_new(clfr, op, time_step)
+        self._clfrs.append(clfr)
+        self._num_micros += clfr.numerosity
+        assert op in ("covering", "insertion")
+        self._ops_history[op] += clfr.numerosity
 
         self._index.try_add_phenotype(clfr.condition.phenotype)
 
     def remove(self, clfr, op=None):
-        super().remove(clfr, op)
+        #super().remove(clfr, op)
+        self._clfrs.remove(clfr)
+        self._num_micros -= clfr.numerosity
+        if op is not None:
+            assert op == "deletion"
+            self._ops_history[op] += clfr.numerosity
 
         self._index.try_remove_phenotype(clfr.condition.phenotype)
 
     def gen_match_set(self, obs):
-        (sparse_phenotype_matching_map, _) = \
+        sparse_phenotype_matching_map = \
             self._index.gen_sparse_phenotype_matching_map(obs)
 
         return [
@@ -123,7 +135,7 @@ class FastMatchingPopulation(PopulationABC):
 
     def gen_matching_trace(self, obs):
         (sparse_phenotype_matching_map, num_matching_ops_done) = \
-            self._index.gen_sparse_phenotype_matching_map(obs)
+            self._index.gen_matching_trace(obs)
 
         trace = [
             sparse_phenotype_matching_map.get(clfr.condition.phenotype, False)
