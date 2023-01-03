@@ -27,24 +27,13 @@ class PopulationABC(metaclass=abc.ABCMeta):
         # delta can be neg. (obviously), but op. counts are pos.
         self._ops_history[op] += abs(delta)
 
+    @abc.abstractmethod
     def add_new(self, clfr, op, time_step=None):
-        self._clfrs.append(clfr)
-        self._num_micros += clfr.numerosity
-        assert op in ("covering", "insertion")
-        self._ops_history[op] += clfr.numerosity
+        raise NotImplementedError
 
+    @abc.abstractmethod
     def remove(self, clfr, op=None):
-        self._clfrs.remove(clfr)
-        self._num_micros -= clfr.numerosity
-        if op is not None:
-            assert op == "deletion"
-            self._ops_history[op] += clfr.numerosity
-
-    def __iter__(self):
-        return iter(self._clfrs)
-
-    def __getitem__(self, idx):
-        return self._clfrs[idx]
+        raise NotImplementedError
 
     @abc.abstractmethod
     def gen_match_set(self, obs):
@@ -53,6 +42,12 @@ class PopulationABC(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def gen_matching_trace(self, obs):
         raise NotImplementedError
+
+    def __getitem__(self, idx):
+        return self._clfrs[idx]
+
+    def __iter__(self):
+        return iter(self._clfrs)
 
 
 class VanillaPopulation(PopulationABC):
@@ -69,6 +64,19 @@ class VanillaPopulation(PopulationABC):
             "ga_subsumption": 0,
             "as_subsumption": 0
         }
+
+    def add_new(self, clfr, op, time_step=None):
+        self._clfrs.append(clfr)
+        self._num_micros += clfr.numerosity
+        assert op in ("covering", "insertion")
+        self._ops_history[op] += clfr.numerosity
+
+    def remove(self, clfr, op=None):
+        self._clfrs.remove(clfr)
+        self._num_micros -= clfr.numerosity
+        if op is not None:
+            assert op == "deletion"
+            self._ops_history[op] += clfr.numerosity
 
     def gen_match_set(self, obs):
         """Full and exhaustive matching procedure: match each
@@ -90,34 +98,20 @@ class FastMatchingPopulation(PopulationABC):
         self._num_micros = vanilla_pop._num_micros
         self._ops_history = vanilla_pop._ops_history
 
-        # make the phenotype index
-        # first, make all the condition phenotype in the pop indexable
-        self._make_clfr_phenotypes_indexable(self._clfrs)
-
         self._index = LSHPartitioning(
             encoding=encoding,
             lsh=lsh,
             phenotypes=[clfr.condition.phenotype for clfr in self._clfrs])
 
-    def _make_clfr_phenotypes_indexable(self, clfrs):
-        """Update phenotypes of clfr conditions in place with indexable
-        variants."""
-        for clfr in clfrs:
-            clfr.condition.convert_to_indexable_phenotype()
-
     def add_new(self, clfr, op, time_step=None):
-        #super().add_new(clfr, op, time_step)
         self._clfrs.append(clfr)
         self._num_micros += clfr.numerosity
         assert op in ("covering", "insertion")
         self._ops_history[op] += clfr.numerosity
 
-        # make indexable, and try add to index
-        clfr.condition.convert_to_indexable_phenotype()
         self._index.try_add_phenotype(clfr.condition.phenotype)
 
     def remove(self, clfr, op=None):
-        #super().remove(clfr, op)
         self._clfrs.remove(clfr)
         self._num_micros -= clfr.numerosity
         if op is not None:

@@ -1,3 +1,4 @@
+import abc
 import logging
 from collections import OrderedDict, deque
 from enum import Enum
@@ -23,8 +24,17 @@ MatchingModes = Enum("MatchingModes", ["full", "fast"])
 _EXPLOIT_CORRECT_HISTORY_MAXLEN = 100
 
 
-class XCS:
-    def __init__(self, env, encoding, hyperparams_dict, use_fm):
+def make_xcs(env, encoding, hyperparams_dict, use_fm):
+    if use_fm:
+        cls = FastMatchingXCS
+    else:
+        cls = VanillaXCS
+
+    return cls(env, encoding, hyperparams_dict)
+
+
+class XCSABC(metaclass=abc.ABCMeta):
+    def __init__(self, env, encoding, hyperparams_dict):
 
         assert isinstance(env, ClassificationStreamEnvironment)
         self._env = env
@@ -41,9 +51,6 @@ class XCS:
 
         # always starts out with vanilla pop, switches later if using FM
         self._pop = VanillaPopulation()
-        self._use_fm = use_fm
-        self._match_mode = MatchingModes.full
-        self._last_cover_time_step = MIN_TIME_STEP
 
     @property
     def pop(self):
@@ -62,42 +69,13 @@ class XCS:
             self._run_step()
         self._num_steps_done += num_steps
 
+    @abc.abstractmethod
     def _run_step(self):
-        obs = self._env.curr_obs
-        match_set = self._gen_match_set_and_cover(obs)
-        prediction_arr = self._gen_prediction_arr(match_set, obs)
-        action = self._select_action(prediction_arr)
-        action_set = self._gen_action_set(match_set, action)
+        raise NotImplementedError
 
-        # single-step only, no previous action sets or discounting
-        env_response = self._env.step(action)
-
-        if self._action_selection_mode == ActionSelectionModes.exploit:
-            self._exploit_correct_history.append(env_response.correct)
-
-        payoff = env_response.reward
-
-        update_action_set(action_set, payoff, obs, self._pop)
-        self._try_run_ga(action_set, self._pop, self._time_step,
-                         self._encoding, obs, self._env.action_space)
-        self._time_step += 1
-
-        self._try_switch_match_mode()
-
+    @abc.abstractmethod
     def _gen_match_set_and_cover(self, obs):
-        match_set = self._gen_match_set(obs)
-        # always cover all actions
-        theta_mna = len(self._env.action_space)
-        while (calc_num_unique_actions(match_set) < theta_mna):
-            clfr = gen_covering_classifier(obs, self._encoding, match_set,
-                                           self._env.action_space,
-                                           self._time_step)
-            self._pop.add_new(clfr, op="covering", time_step=self._time_step)
-            deletion(self._pop)
-            match_set.append(clfr)
-            self._last_cover_time_step = self._time_step
-
-        return match_set
+        raise NotImplementedError
 
     def _gen_match_set(self, obs):
         return self._pop.gen_match_set(obs)
@@ -154,8 +132,108 @@ class XCS:
             if should_apply_ga:
                 run_ga(action_set, pop, time_step, encoding, obs, action_space)
 
+    def select_action(self, obs):
+        """Action selection for outside testing - always exploit"""
+        match_set = self._gen_match_set(obs)
+        if len(match_set) > 0:
+            prediction_arr = self._gen_prediction_arr(match_set, obs)
+            return greedy_action_selection(prediction_arr)
+        else:
+            return NULL_ACTION
+
+    def gen_prediction_arr(self, obs):
+        """For outside testing."""
+        match_set = self._gen_match_set(obs)
+        return self._gen_prediction_arr(match_set, obs)
+
+
+class VanillaXCS(XCSABC):
+    def _run_step(self):
+        obs = self._env.curr_obs
+        match_set = self._gen_match_set_and_cover(obs)
+        prediction_arr = self._gen_prediction_arr(match_set, obs)
+        action = self._select_action(prediction_arr)
+        action_set = self._gen_action_set(match_set, action)
+
+        # single-step only, no previous action sets or discounting
+        env_response = self._env.step(action)
+
+        if self._action_selection_mode == ActionSelectionModes.exploit:
+            self._exploit_correct_history.append(env_response.correct)
+
+        payoff = env_response.reward
+
+        update_action_set(action_set, payoff, obs, self._pop)
+        self._try_run_ga(action_set, self._pop, self._time_step,
+                         self._encoding, obs, self._env.action_space)
+        self._time_step += 1
+
+    def _gen_match_set_and_cover(self, obs):
+        match_set = self._gen_match_set(obs)
+        # always cover all actions
+        theta_mna = len(self._env.action_space)
+
+        while (calc_num_unique_actions(match_set) < theta_mna):
+            clfr = gen_covering_classifier(obs, self._encoding, match_set,
+                                           self._env.action_space,
+                                           self._time_step)
+            self._pop.add_new(clfr, op="covering", time_step=self._time_step)
+            deletion(self._pop)
+            match_set.append(clfr)
+
+        return match_set
+
+
+class FastMatchingXCS(XCSABC):
+    def __init__(self, env, encoding, hyperparams_dict):
+        super().__init__(env, encoding, hyperparams_dict)
+
+        # starts out doing full matching with vanilla pop
+        # switches to fast mathcing according to theta_fm hyperparam
+        self._match_mode = MatchingModes.full
+        self._last_cover_time_step = MIN_TIME_STEP
+
+    def _run_step(self):
+        obs = self._env.curr_obs
+        match_set = self._gen_match_set_and_cover(obs)
+        prediction_arr = self._gen_prediction_arr(match_set, obs)
+        action = self._select_action(prediction_arr)
+        action_set = self._gen_action_set(match_set, action)
+
+        # single-step only, no previous action sets or discounting
+        env_response = self._env.step(action)
+
+        if self._action_selection_mode == ActionSelectionModes.exploit:
+            self._exploit_correct_history.append(env_response.correct)
+
+        payoff = env_response.reward
+
+        update_action_set(action_set, payoff, obs, self._pop)
+        self._try_run_ga(action_set, self._pop, self._time_step,
+                         self._encoding, obs, self._env.action_space)
+        self._time_step += 1
+
+        self._try_switch_match_mode()
+
+    def _gen_match_set_and_cover(self, obs):
+        match_set = self._gen_match_set(obs)
+        # always cover all actions
+        theta_mna = len(self._env.action_space)
+
+        while (calc_num_unique_actions(match_set) < theta_mna):
+            clfr = gen_covering_classifier(obs, self._encoding, match_set,
+                                           self._env.action_space,
+                                           self._time_step)
+            self._pop.add_new(clfr, op="covering", time_step=self._time_step)
+            deletion(self._pop)
+            match_set.append(clfr)
+
+            self._last_cover_time_step = self._time_step
+
+        return match_set
+
     def _try_switch_match_mode(self):
-        if (self._use_fm and self._match_mode == MatchingModes.full):
+        if self._match_mode == MatchingModes.full:
 
             time_steps_since_last_cover = (self._time_step -
                                            self._last_cover_time_step)
@@ -174,17 +252,3 @@ class XCS:
                 self._pop = FastMatchingPopulation(vanilla_pop=self._pop,
                                                    encoding=self._encoding,
                                                    lsh=lsh)
-
-    def select_action(self, obs):
-        """Action selection for outside testing - always exploit"""
-        match_set = self._gen_match_set(obs)
-        if len(match_set) > 0:
-            prediction_arr = self._gen_prediction_arr(match_set, obs)
-            return greedy_action_selection(prediction_arr)
-        else:
-            return NULL_ACTION
-
-    def gen_prediction_arr(self, obs):
-        """For outside testing."""
-        match_set = self._gen_match_set(obs)
-        return self._gen_prediction_arr(match_set, obs)

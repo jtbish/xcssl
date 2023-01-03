@@ -31,11 +31,10 @@ class LSHPartitioning:
         phenotype_lsh_key_map = {}
 
         for phenotype in phenotype_set:
-            # first, make vectorised repr of phenotype so it can be hashed by
+            # make vectorised repr of phenotype so it can be hashed by
             # LSH
-            vec = encoding.gen_phenotype_vec(phenotype.elems)
-            phenotype.vec = vec
-            phenotype_lsh_key_map[phenotype] = lsh.hash(vec)
+            phenotype_lsh_key_map[phenotype] = \
+                lsh.hash(encoding.gen_phenotype_vec(phenotype.elems))
 
         return phenotype_lsh_key_map
 
@@ -54,7 +53,14 @@ class LSHPartitioning:
         # then make the actual Partition objs. from these
         lsh_key_partition_map = {}
         for (lsh_key, phenotype_set) in partitions.items():
-            lsh_key_partition_map[lsh_key] = Partition(phenotype_set, encoding)
+
+            if len(phenotype_set) == 1:
+                partition = Partition.from_single_phenotype(
+                    (tuple(phenotype_set))[0])
+            else:
+                partition = Partition(phenotype_set, encoding)
+
+            lsh_key_partition_map[lsh_key] = partition
 
         return lsh_key_partition_map
 
@@ -131,21 +137,16 @@ class LSHPartitioning:
             self._add_phenotype(phenotype)
 
     def _add_phenotype(self, addee):
-        # calc and set vec for addee
-        vec = self._encoding.gen_phenotype_vec(addee.elems)
-        addee.vec = vec
-
-        # then calc lsh key
-        lsh_key = self._lsh.hash(vec)
+        # calc lsh key given addee vec
+        lsh_key = self._lsh.hash(self._encoding.gen_phenotype_vec(addee.elems))
         self._phenotype_lsh_key_map[addee] = lsh_key
 
         # try to add to existing partition, else make new partition
         try:
             (self._lsh_key_partition_map[lsh_key]).add(addee, self._encoding)
         except KeyError:
-            partition = Partition(phenotype_set={addee},
-                                  encoding=self._encoding)
-            self._lsh_key_partition_map[lsh_key] = partition
+            self._lsh_key_partition_map[lsh_key] = \
+                Partition.from_single_phenotype(addee)
 
     def try_remove_phenotype(self, phenotype):
         count = self._phenotype_count_map[phenotype]
@@ -175,21 +176,23 @@ class LSHPartitioning:
 
 
 class Partition:
-    def __init__(self, phenotype_set, encoding):
+    def __init__(self, phenotype_set, encoding=None, subsumer_phenotype=None):
         self._phenotype_set = phenotype_set
 
         self._num_phenotypes = len(self._phenotype_set)
 
-        if self._num_phenotypes == 1:
-            # sole member of the partition is the subsumer
-            self._subsumer_phenotype = (list(self._phenotype_set))[0]
-
-        elif self._num_phenotypes > 1:
+        if subsumer_phenotype is None:
+            # none provided, need to calc
             self._subsumer_phenotype = \
                 encoding.make_subsumer_phenotype(self._phenotype_set)
-
         else:
-            assert False
+            self._subsumer_phenotype = subsumer_phenotype
+
+    @classmethod
+    def from_single_phenotype(cls, phenotype):
+        return cls(phenotype_set={phenotype},
+                   encoding=None,
+                   subsumer_phenotype=phenotype)
 
     @property
     def phenotype_set(self):
@@ -231,7 +234,7 @@ class Partition:
         if self._num_phenotypes == 1:
             # shrink subsumer to be equal to the (now) sole member of the
             # partition
-            self._subsumer_phenotype = (list(self._phenotype_set))[0]
+            self._subsumer_phenotype = (tuple(self._phenotype_set))[0]
 
         elif self._num_phenotypes > 1:
             # shrink subsumer to fit the remaining members

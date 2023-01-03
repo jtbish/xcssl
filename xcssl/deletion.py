@@ -18,21 +18,33 @@ def deletion(pop):
 def _delete_single_microclfr(pop):
     avg_fitness_in_pop = sum([clfr.fitness for clfr in pop]) / pop.num_micros
     vote_increase_threshold = (get_hp("delta") * avg_fitness_in_pop)
-    votes = [
-        _deletion_vote(clfr, avg_fitness_in_pop, vote_increase_threshold)
-        for clfr in pop
-    ]
-    max_vote = max(votes)
+
+    votes = []
+    max_vote = None
+
+    for clfr in pop:
+        vote = _deletion_vote(clfr, avg_fitness_in_pop,
+                              vote_increase_threshold)
+        votes.append(vote)
+
+        if max_vote is None or vote > max_vote:
+            max_vote = vote
+
+    assert max_vote is not None
 
     # roulette wheel selection via stochastic acceptance
     clfr_to_remove = None
     accepted = False
+
     while not accepted:
+
         idx = get_rng().randint(0, pop.num_macros)
         (clfr, vote) = (pop[idx], votes[idx])  # since pop ordered this is ok
         p_accept = (vote / max_vote)
+
         if get_rng().random() < p_accept:
             accepted = True
+
             if clfr.numerosity > 1:
                 pop.alter_numerosity(clfr, delta=-1, op="deletion")
             elif clfr.numerosity == 1:

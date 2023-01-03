@@ -1,7 +1,5 @@
 import abc
 
-from .phenotype import IndexablePhenotype, VanillaPhenotype
-
 TERNARY_HASH = "#"
 
 
@@ -29,14 +27,6 @@ class ConditionABC(metaclass=abc.ABCMeta):
 
     def does_match(self, obs):
         return self._encoding.does_phenotype_match(self._phenotype, obs)
-
-    def convert_to_indexable_phenotype(self):
-        """Converts the current VanillaPhenotype of this condition to an
-        IndexablePhenotype."""
-        assert isinstance(self._phenotype, VanillaPhenotype)
-
-        elems = self._phenotype.elems
-        self._phenotype = IndexablePhenotype(elems)
 
     def __eq__(self, other):
         return self.phenotype == other.phenotype

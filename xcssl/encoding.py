@@ -7,13 +7,14 @@ from .hyperparams import get_hyperparam as get_hp
 from .interval import IntegerInterval, RealInterval
 from .lsh import EuclideanLSH, HammingLSH
 from .obs_space import IntegerObsSpace, RealObsSpace
-from .phenotype import VanillaPhenotype
+from .phenotype import Phenotype
 from .rng import get_rng
 
 
 class EncodingABC(metaclass=abc.ABCMeta):
     def __init__(self, obs_space):
         self._obs_space = obs_space
+        self._num_obs_dims = len(self._obs_space)
 
     @property
     def obs_space(self):
@@ -27,7 +28,7 @@ class EncodingABC(metaclass=abc.ABCMeta):
         return self.make_phenotype(phenotype_elems)
 
     def make_phenotype(self, phenotype_elems):
-        return VanillaPhenotype(phenotype_elems)
+        return Phenotype(phenotype_elems)
 
     def make_lsh(self):
         num_dims = self.calc_num_phenotype_vec_dims()
@@ -104,7 +105,7 @@ class TernaryEncoding(EncodingABC):
         return len(self._obs_space)
 
     def gen_covering_condition(self, obs):
-        num_alleles = len(self._obs_space)
+        num_alleles = self._num_obs_dims
         assert len(obs) == num_alleles
 
         cond_alleles = []
@@ -180,23 +181,37 @@ class TernaryEncoding(EncodingABC):
     def make_subsumer_phenotype(self, phenotypes):
         subsumer_elems = []
 
-        for dim_idx in range(0, len(self.obs_space)):
+        for dim_idx in range(0, self._num_obs_dims):
 
             dim_elems = [phenotype[dim_idx] for phenotype in phenotypes]
 
-            if TERNARY_HASH in dim_elems:
+            zero_count = 0
+            one_count = 0
+            hash_count = 0
+
+            for elem in dim_elems:
+                if elem == 0:
+                    zero_count += 1
+                elif elem == 1:
+                    one_count += 1
+                elif elem == TERNARY_HASH:
+                    hash_count += 1
+                else:
+                    assert False
+
+            if hash_count > 0:
+                # at least one hash, so subsumer needs to hash
                 subsumer_elems.append(TERNARY_HASH)
             else:
-                if 1 not in dim_elems:
+                # no hashes
+                if one_count == 0:
                     # all zeroes
                     subsumer_elems.append(0)
-
-                elif 0 not in dim_elems:
+                elif zero_count == 0:
                     # all ones
                     subsumer_elems.append(1)
-
                 else:
-                    # some mixture of zeroes and ones
+                    # some mixture of zeroes and ones, so subsumer needs hash
                     subsumer_elems.append(TERNARY_HASH)
 
         return self.make_phenotype(subsumer_elems)
@@ -259,9 +274,11 @@ class UnorderedBoundEncodingABC(EncodingABC, metaclass=abc.ABCMeta):
     _GENERALITY_UB_INCL = 1.0
 
     def gen_covering_condition(self, obs):
-        num_alleles = len(self._obs_space) * 2
+        assert len(obs) == self._num_obs_dims
+
+        num_alleles = (self._num_obs_dims * 2)
         cond_alleles = []
-        assert len(obs) == len(self._obs_space)
+
         for (obs_compt, dim) in zip(obs, self._obs_space):
             (lower, upper) = self._gen_covering_alleles(obs_compt, dim)
             cover_alleles = [lower, upper]
