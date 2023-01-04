@@ -58,7 +58,8 @@ class LSHPartitioning:
                 partition = Partition.from_single_phenotype(
                     (tuple(phenotype_set))[0])
             else:
-                partition = Partition(phenotype_set, encoding)
+                partition = Partition.from_phenotype_set(
+                    phenotype_set, encoding)
 
             lsh_key_partition_map[lsh_key] = partition
 
@@ -177,6 +178,10 @@ class LSHPartitioning:
 
 class Partition:
     def __init__(self, phenotype_set, encoding=None, subsumer_phenotype=None):
+
+        assert (encoding is None and subsumer_phenotype is not None) \
+            or (encoding is not None and subsumer_phenotype is None)
+
         self._phenotype_set = phenotype_set
 
         self._num_phenotypes = len(self._phenotype_set)
@@ -190,9 +195,18 @@ class Partition:
 
     @classmethod
     def from_single_phenotype(cls, phenotype):
+        # subsumer is identical to the sole phenotype
         return cls(phenotype_set={phenotype},
                    encoding=None,
                    subsumer_phenotype=phenotype)
+
+    @classmethod
+    def from_phenotype_set(cls, phenotype_set, encoding):
+        # subsumer needs to be calced via encoding for multiple phenotypes in
+        # the set
+        return cls(phenotype_set=phenotype_set,
+                   encoding=encoding,
+                   subsumer_phenotype=None)
 
     @property
     def phenotype_set(self):
