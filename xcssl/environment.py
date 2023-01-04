@@ -1,5 +1,6 @@
 import functools
 from collections import namedtuple
+from enum import Enum
 
 import numpy as np
 import pandas as pd
@@ -11,6 +12,7 @@ REWARD_CORRECT = 1000
 
 EnvironmentResponse = namedtuple("EnvironmentResponse", ["reward", "correct"])
 StreamDataInstance = namedtuple("StreamDataInstance", ["obs", "label"])
+StreamOpModes = Enum("StreamOpModes", ["dataset", "gen"])
 
 
 def check_terminal(public_method):
@@ -116,8 +118,6 @@ class ClassificationEpochEnvironment:
 
 
 class ClassificationStreamEnvironment:
-    OpModes = namedtuple("OpModes", ["dataset", "gen"])
-
     def __init__(self,
                  obs_space,
                  action_space,
@@ -135,14 +135,14 @@ class ClassificationStreamEnvironment:
 
         if dataset is not None:
 
-            self._op_mode = self.OpModes.dataset
+            self._op_mode = StreamOpModes.dataset
             _validate_dataset(dataset)
             self._dataset = dataset
             self._instance_gen_func = None
 
         elif instance_gen_func is not None:
 
-            self._op_mode = self.OpModes.gen
+            self._op_mode = StreamOpModes.gen
             self._dataset = None
             self._instance_gen_func = instance_gen_func
 
@@ -187,14 +187,14 @@ class ClassificationStreamEnvironment:
         return self._curr_data_instance.obs
 
     def _get_data_instance(self, op_mode, dataset, instance_gen_func, rng):
-        if op_mode == self.OpModes.dataset:
+        if op_mode == StreamOpModes.dataset:
 
             # pick a random row from the dataset
             idx = rng.randint(low=0, high=len(dataset))
             return StreamDataInstance(obs=dataset["obs"][idx],
                                       label=dataset["label"][idx])
 
-        elif op_mode == self.OpModes.gen:
+        elif op_mode == StreamOpModes.gen:
             return instance_gen_func(rng)
         else:
             assert False
