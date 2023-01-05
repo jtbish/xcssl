@@ -1,20 +1,23 @@
 import abc
 import logging
-from collections import OrderedDict
+
+from .lsh import distance_between_lsh_keys
 
 _INIT_NODE_ID = 0
 _MIN_NUM_ROOT_NODES = 2
 
 
 class SubsumptionForest:
-    def __init__(self, encoding, lsh, phenotypes, theta_clust):
+    def __init__(self, encoding, lsh, phenotypes, theta_clust=None):
         self._encoding = encoding
         self._lsh = lsh
 
         self._phenotype_count_map = self._init_phenotype_count_map(phenotypes)
 
         self._phenotype_lsh_key_map = self._gen_phenotype_lsh_key_map(
-            self._lsh, phenotype_set=self._phenotype_count_map.keys())
+            self._encoding,
+            self._lsh,
+            phenotype_set=self._phenotype_count_map.keys())
 
         self._next_node_id = _INIT_NODE_ID
 
@@ -37,14 +40,19 @@ class SubsumptionForest:
 
         return phenotype_count_map
 
-    def _gen_phenotype_lsh_key_map(self, lsh, phenotype_set):
+    def _gen_phenotype_lsh_key_map(self, encoding, lsh, phenotype_set):
         """Generates the LSH hash/key for each phenotype
         (assumes hasher is using a single band)."""
 
-        return {
-            phenotype: lsh.hash(phenotype.vec)
-            for phenotype in phenotype_set
-        }
+        phenotype_lsh_key_map = {}
+
+        for phenotype in phenotype_set:
+            # make vectorised repr of phenotype so it can be hashed by
+            # LSH
+            phenotype_lsh_key_map[phenotype] = \
+                lsh.hash(encoding.gen_phenotype_vec(phenotype.elems))
+
+        return phenotype_lsh_key_map
 
     def _get_next_node_id(self):
         id_ = self._next_node_id
@@ -67,24 +75,31 @@ class SubsumptionForest:
     def _gen_lsh_key_leaf_node_map(self, phenotype_lsh_key_map, encoding):
         """Generates the mapping between LSH keys and the leaf nodes at the
         bottom of a tree."""
-        # first partition the phenotypes into LSH key buckets
+        # first partition the phenotypes into LSH key buckets as sets
         partitions = {}
 
         for (phenotype, lsh_key) in phenotype_lsh_key_map.items():
             # try add phenotype to existing partition, else make new partition
             try:
-                partitions[lsh_key].append(phenotype)
+                partitions[lsh_key].add(phenotype)
             except KeyError:
-                partitions[lsh_key] = [phenotype]
+                partitions[lsh_key] = {phenotype}
 
         # then make the actual LeafNode objs. from these partitions
-        # preserve ordering via ordered dict (since ordering used later when
-        # constructing forest)
-        lsh_key_leaf_node_map = OrderedDict()
-        for (lsh_key, phenotypes) in partitions.items():
+        lsh_key_leaf_node_map = {}
+        for (lsh_key, phenotype_set) in partitions.items():
+
             node_id = self._get_next_node_id()
-            lsh_key_leaf_node_map[lsh_key] = LeafNode(node_id, phenotypes,
-                                                      encoding)
+
+            if len(phenotype_set) == 1:
+                leaf_node = LeafNode.from_single_phenotype(
+                    node_id, phenotype=(tuple(phenotype_set))[0])
+
+            else:
+                leaf_node = LeafNode.from_phenotype_set(
+                    node_id, phenotype_set, encoding)
+
+            lsh_key_leaf_node_map[lsh_key] = leaf_node
 
         return lsh_key_leaf_node_map
 
@@ -93,12 +108,13 @@ class SubsumptionForest:
         # make node list.
         # use ordering on leaf nodes so they can be referred to by integer
         # node id (== idx in the list)
+        lsh_key_ls = list(lsh_key_leaf_node_map.keys())
         node_ls = list(lsh_key_leaf_node_map.values())
         for (idx, node) in enumerate(node_ls):
             assert node.node_id == idx
 
         n = len(node_ls)
-        subsumer_cost_mat = {node_id: {} for node_id in range(n)}
+        cost_mat = {node_id: {} for node_id in range(n)}
 
         # iter over right off-diag of mat, fill it symmetrically
         # can use ranges of ids in these loops since initially the ids form
@@ -106,18 +122,14 @@ class SubsumptionForest:
         for row_node_id in range(0, (n - 1)):
             for col_node_id in range((row_node_id + 1), n):
 
-                (subsumer,
-                 dist) = encoding.make_subsumer_phenotype_and_calc_dist(
-                     (node_ls[row_node_id]).subsumer_phenotype,
-                     (node_ls[col_node_id]).subsumer_phenotype)
+                cost = distance_between_lsh_keys(lsh_key_ls[row_node_id],
+                                                 lsh_key_ls[col_node_id])
 
-                cost = (subsumer.generality, dist)
+                cost_mat[row_node_id][col_node_id] = cost
+                cost_mat[col_node_id][row_node_id] = cost
 
-                subsumer_cost_mat[row_node_id][col_node_id] = (subsumer, cost)
-                subsumer_cost_mat[col_node_id][row_node_id] = (subsumer, cost)
-
-        assert len(subsumer_cost_mat) == n
-        for row in subsumer_cost_mat.values():
+        assert len(cost_mat) == n
+        for row in cost_mat.values():
             # excludes diag.
             assert len(row) == (n - 1)
 
@@ -126,126 +138,114 @@ class SubsumptionForest:
 
         while True:
 
-            #self._pretty_print_subsumer_cost_mat(subsumer_cost_mat)
+            self._pretty_print_cost_mat(cost_mat)
 
-            n = len(subsumer_cost_mat)
+            n = len(cost_mat)
             try_make_merge_node = (n > 2)
 
             if not try_make_merge_node:
                 break
 
             else:
-                # find min valid cost pair to do merge for (if any)
-                min_valid_cost = None
+                # find min cost pair to do merge for
+                min_cost = None
                 merge_pair = None
 
                 rod_iter = self._make_right_off_diag_iter(
-                    node_id_set=subsumer_cost_mat.keys())
+                    node_id_set=cost_mat.keys())
 
                 for (node_id_a, node_id_b) in rod_iter:
 
-                    (subsumer, cost) = subsumer_cost_mat[node_id_a][node_id_b]
+                    cost = cost_mat[node_id_a][node_id_b]
 
-                    is_valid = (subsumer.generality < max_generality)
+                    if min_cost is None or cost < min_cost:
+                        min_cost = cost
+                        merge_pair = (node_id_a, node_id_b)
 
-                    if is_valid:
-                        # use tuple ordering here since cost is 2-tuple of
-                        # (genr, dist), but < operator will correctly compute
-                        # lexicographic ordering (minimise genr first, then
-                        # dist)
-                        if min_valid_cost is None or cost < min_valid_cost:
-                            min_valid_cost = cost
-                            merge_pair = (node_id_a, node_id_b)
+                assert merge_pair is not None
 
-                # do the merge if possible
-                merge_possible = (merge_pair is not None)
+                # (try) make the node for the merge and update the cost mat
+                # mat for next iter
 
-                if not merge_possible:
-                    # terminate early
+                (left_child_node_id, right_child_node_id) = merge_pair
+
+                left_child_node = node_ls[left_child_node_id]
+                right_child_node = node_ls[right_child_node_id]
+
+                # make subsumer to fit the children
+                # checking if it is valid (less than max generality)
+                merge_node_subsumer = encoding.make_subsumer_phenotype(
+                    (left_child_node.subsumer_phenotype,
+                     right_child_node.subsumer_phenotype))
+
+                merge_node_subsumer_genr = encoding.calc_phenotype_generality(
+                    merge_node_subsumer)
+                if merge_node_subsumer_genr == max_generality:
+                    # don't make the node, stop early
                     break
 
-                else:
-                    # make the node for the merge and update the subsumer cost
-                    # mat for next iter
+                merge_node_id = self._get_next_node_id()
+                merge_node_height = self._calc_merge_node_height(
+                    left_child_node, right_child_node)
 
-                    (left_child_node_id, right_child_node_id) = merge_pair
+                merge_node = MergeNode(merge_node_id, merge_node_height,
+                                       left_child_node, right_child_node,
+                                       merge_node_subsumer)
+                node_ls.append(merge_node)
 
-                    next_node_id = self._get_next_node_id()
-                    #print(f"{next_node_id} = merge({left_child_node_id}, "
-                    #      f"{right_child_node_id}) @ cost "
-                    #      f"({min_valid_cost[0]}, {min_valid_cost[1]})")
+                # update parent pointers for both children
+                for child_node in (left_child_node, right_child_node):
+                    child_node.parent_node = merge_node
 
-                    # make new node and store it in the node list
-                    left_child_node = node_ls[left_child_node_id]
-                    right_child_node = node_ls[right_child_node_id]
+                print(f"{merge_node_id} = merge({left_child_node_id}, "
+                      f"{right_child_node_id}) @ cost {min_cost}")
 
-                    (merge_node_subsumer_phenotype, _) = subsumer_cost_mat[
-                        left_child_node_id][right_child_node_id]
-                    merge_node_height = self._calc_merge_node_height(
-                        left_child_node, right_child_node)
+                # update the cost mat for next iter
+                # first, copy over all the entries for the non merged
+                # node ids
+                non_merged_node_id_set = (
+                    set(cost_mat.keys()) -
+                    {left_child_node_id, right_child_node_id})
 
-                    merge_node = MergeNode(next_node_id, merge_node_height,
-                                           left_child_node, right_child_node,
-                                           merge_node_subsumer_phenotype)
-                    node_ls.append(merge_node)
+                next_cost_mat = {
+                    node_id: {}
+                    for node_id in non_merged_node_id_set
+                }
 
-                    # update parent pointers for both children
-                    for child_node in (left_child_node, right_child_node):
-                        child_node.parent_node = merge_node
+                rod_iter = self._make_right_off_diag_iter(
+                    node_id_set=non_merged_node_id_set)
 
-                    # update the subsumer mat for next iter
-                    # first, copy over all the entries for the non merged
-                    # node ids
-                    non_merged_node_id_set = (
-                        set(subsumer_cost_mat.keys()) -
-                        {left_child_node_id, right_child_node_id})
+                for (node_id_a, node_id_b) in rod_iter:
 
-                    next_subsumer_cost_mat = {
-                        node_id: {}
-                        for node_id in non_merged_node_id_set
-                    }
+                    cost = cost_mat[node_id_a][node_id_b]
 
-                    rod_iter = self._make_right_off_diag_iter(
-                        node_id_set=non_merged_node_id_set)
+                    next_cost_mat[node_id_a][node_id_b] = cost
+                    next_cost_mat[node_id_b][node_id_a] = cost
 
-                    for (node_id_a, node_id_b) in rod_iter:
-                        (subsumer,
-                         cost) = subsumer_cost_mat[node_id_a][node_id_b]
+                # then, make a row for the merge node id
+                # (result of the merge)
+                # and populate the next mat for this merge node
+                next_cost_mat[merge_node_id] = {}
 
-                        next_subsumer_cost_mat[node_id_a][node_id_b] = (
-                            subsumer, cost)
-                        next_subsumer_cost_mat[node_id_b][node_id_a] = (
-                            subsumer, cost)
+                for non_merged_node_id in non_merged_node_id_set:
 
-                    # then, make a row for the next node id
-                    # (result of the merge)
-                    # and populate the matrix for this next node id
-                    next_subsumer_cost_mat[next_node_id] = {}
+                    # complete linkage
+                    cost = max(
+                        cost_mat[non_merged_node_id][left_child_node_id],
+                        cost_mat[non_merged_node_id][right_child_node_id])
 
-                    for non_merged_node_id in non_merged_node_id_set:
+                    next_cost_mat[merge_node_id][non_merged_node_id] = cost
+                    next_cost_mat[non_merged_node_id][merge_node_id] = cost
 
-                        (subsumer, dist
-                         ) = encoding.make_subsumer_phenotype_and_calc_dist(
-                             (node_ls[non_merged_node_id]).subsumer_phenotype,
-                             merge_node_subsumer_phenotype)
+                # cost mat should have shrunk by one row and one column in
+                # each row compared to before merge
+                assert len(next_cost_mat) == (n - 1)
+                for row in next_cost_mat.values():
+                    # excludes diag.
+                    assert len(row) == (n - 2)
 
-                        cost = (subsumer.generality, dist)
-
-                        next_subsumer_cost_mat[next_node_id][
-                            non_merged_node_id] = (subsumer, cost)
-                        next_subsumer_cost_mat[non_merged_node_id][
-                            next_node_id] = (subsumer, cost)
-
-                    # mat should have shrunk by one row and one column in
-                    # each row compared to before merge
-                    assert len(next_subsumer_cost_mat) == (n - 1)
-                    for row in next_subsumer_cost_mat.values():
-                        # excludes diag.
-                        assert len(row) == (n - 2)
-
-                    num_merges_done += 1
-                    subsumer_cost_mat = next_subsumer_cost_mat
-                    next_node_id += 1
+                num_merges_done += 1
+                cost_mat = next_cost_mat
 
         # now, figure out the root nodes of the tree(s) in the forest
         # to do this, simply examine all nodes in the node list
@@ -284,19 +284,20 @@ class SubsumptionForest:
 
         return node_id_root_node_map
 
-    def _pretty_print_subsumer_cost_mat(self, subsumer_cost_mat):
+    def _pretty_print_cost_mat(self, cost_mat):
         print("\n")
 
-        sorted_node_ids = sorted(subsumer_cost_mat.keys())
+        sorted_node_ids = sorted(cost_mat.keys())
         header = "         \t".join([str(id_) for id_ in sorted_node_ids])
         print(f"\t\t{header}")
         print("-" * 180)
 
         for id_ in sorted_node_ids:
-            dict_ = dict(subsumer_cost_mat[id_])
-            dict_[id_] = ("-", ("-", 0))
-            costs = [v[1] for (k, v) in sorted(dict_.items())]
-            costs_str = "\t".join([f"({c[0]}, {c[1]})" for c in costs])
+            dict_ = dict(cost_mat[id_])
+            # self cost
+            dict_[id_] = "-"
+            costs = [v for (k, v) in sorted(dict_.items())]
+            costs_str = "\t".join([str(c) for c in costs])
             print(f"{id_}\t|\t{costs_str}")
 
         print("\n")
@@ -341,12 +342,9 @@ class SubsumptionForest:
     def gen_sparse_phenotype_matching_map(self, obs):
 
         sparse_phenotype_matching_map = {}
-        total_num_matching_ops_done = 0
 
         # stack based pre-order traversal of each tree in the forest
         for root_node in self._node_id_root_node_map.values():
-
-            match_cache = {}
 
             stack = []
             stack.append(root_node)
@@ -357,39 +355,79 @@ class SubsumptionForest:
 
                 if not node.is_empty():
 
-                    subsumer_phenotype = node.subsumer_phenotype
+                    subsumer = node.subsumer_phenotype
 
-                    try:
-                        does_match = match_cache[subsumer_phenotype]
-                    except KeyError:
-                        does_match = self._encoding.does_phenotype_match(
-                            subsumer_phenotype, obs)
+                    subsumer_does_match = self._encoding.does_phenotype_match(
+                        subsumer, obs)
 
-                        total_num_matching_ops_done += 1
+                    if subsumer_does_match:
+                        # descend
 
-                        if does_match:
-                            # might re-use further down in the tree, so cache
-                            match_cache[subsumer_phenotype] = does_match
-
-                    if does_match:
-
-                        if isinstance(node, LeafNode):
-
-                            (leaf_phenotype_matching_map,
-                             leaf_num_matching_ops_done
-                             ) = node.gen_phenotype_matching_map(
-                                 self._encoding, obs, match_cache)
-
-                            sparse_phenotype_matching_map.update(
-                                leaf_phenotype_matching_map)
-                            total_num_matching_ops_done += \
-                                leaf_num_matching_ops_done
-
-                        else:
+                        if not node.is_leaf:
                             stack.append(node.right_child_node)
                             stack.append(node.left_child_node)
 
-        return (sparse_phenotype_matching_map, total_num_matching_ops_done)
+                        else:
+                            if node.size == 1:
+                                # don't need to match sole member of leaf node
+                                # since it is identical to subsumer
+                                sparse_phenotype_matching_map[subsumer] = True
+
+                            else:
+                                # otherwise, need to match all members of the
+                                # leaf node
+                                sparse_phenotype_matching_map.update(
+                                    node.gen_phenotype_matching_map(
+                                        self._encoding, obs))
+
+        return sparse_phenotype_matching_map
+
+    def gen_matching_trace(self, obs):
+
+        sparse_phenotype_matching_map = {}
+        num_matching_ops_done = 0
+
+        # stack based pre-order traversal of each tree in the forest
+        for root_node in self._node_id_root_node_map.values():
+
+            stack = []
+            stack.append(root_node)
+
+            while len(stack) > 0:
+
+                node = stack.pop()
+
+                if not node.is_empty():
+
+                    subsumer = node.subsumer_phenotype
+
+                    subsumer_does_match = self._encoding.does_phenotype_match(
+                        subsumer, obs)
+                    num_matching_ops_done += 1
+
+                    if subsumer_does_match:
+                        # descend
+
+                        if not node.is_leaf:
+                            stack.append(node.right_child_node)
+                            stack.append(node.left_child_node)
+
+                        else:
+                            if node.size == 1:
+                                # don't need to match sole member of leaf node
+                                # since it is identical to subsumer
+                                sparse_phenotype_matching_map[subsumer] = True
+
+                            else:
+                                # otherwise, need to match all members of the
+                                # leaf node
+                                sparse_phenotype_matching_map.update(
+                                    node.gen_phenotype_matching_map(
+                                        self._encoding, obs))
+
+                                num_matching_ops_done += node.size
+
+        return (sparse_phenotype_matching_map, num_matching_ops_done)
 
     def try_add_phenotype(self, phenotype):
         try:
@@ -531,6 +569,11 @@ class NodeABC(metaclass=abc.ABCMeta):
     def subsumer_phenotype(self, val):
         self._subsumer_phenotype = val
 
+    @property
+    @abc.abstractmethod
+    def is_leaf(self):
+        raise NotImplementedError
+
     @abc.abstractmethod
     def is_empty(self):
         raise NotImplementedError
@@ -544,12 +587,8 @@ class MergeNode(NodeABC):
 
         super().__init__(node_id, height)
 
-        for node in (left_child_node, right_child_node):
-            assert (isinstance(node, LeafNode) or isinstance(node, MergeNode))
-
         self._left_child_node = left_child_node
         self._right_child_node = right_child_node
-
         self._subsumer_phenotype = subsumer_phenotype
 
     @property
@@ -560,8 +599,12 @@ class MergeNode(NodeABC):
     def right_child_node(self):
         return self._right_child_node
 
+    @property
+    def is_leaf(self):
+        return False
+
     def is_empty(self):
-        # by definition: has two children
+        # by definition
         return False
 
 
@@ -570,50 +613,65 @@ class LeafNode(NodeABC):
     phenotype (i.e. bounding volume)."""
     _HEIGHT = 0
 
-    def __init__(self, node_id, phenotypes, encoding):
+    def __init__(self,
+                 node_id,
+                 phenotype_set,
+                 encoding=None,
+                 subsumer_phenotype=None):
+
+        assert (encoding is None and subsumer_phenotype is not None) \
+            or (encoding is not None and subsumer_phenotype is None)
+
         super().__init__(node_id, height=self._HEIGHT)
 
-        self._phenotypes = phenotypes
+        self._phenotype_set = phenotype_set
 
-        self._num_phenotypes = len(self._phenotypes)
+        self._num_phenotypes = len(self._phenotype_set)
 
-        if self._num_phenotypes == 1:
-            # sole member of the partition is the subsumer
-            self._subsumer_phenotype = self._phenotypes[0]
-
-        elif self._num_phenotypes > 1:
+        if subsumer_phenotype is None:
+            # none provided, need to calc
             self._subsumer_phenotype = \
-                encoding.make_subsumer_phenotype(self._phenotypes)
-
+                encoding.make_subsumer_phenotype(self._phenotype_set)
         else:
-            assert False
+            self._subsumer_phenotype = subsumer_phenotype
+
+    @classmethod
+    def from_single_phenotype(cls, node_id, phenotype):
+        # subsumer is identical to the sole phenotype
+        return cls(node_id=node_id,
+                   phenotype_set={phenotype},
+                   encoding=None,
+                   subsumer_phenotype=phenotype)
+
+    @classmethod
+    def from_phenotype_set(cls, node_id, phenotype_set, encoding):
+        # subsumer needs to be calced via encoding for multiple phenotypes in
+        # the set
+        return cls(node_id=node_id,
+                   phenotype_set=phenotype_set,
+                   encoding=encoding,
+                   subsumer_phenotype=None)
 
     @property
-    def phenotypes(self):
-        return self._phenotypes
+    def phenotype_set(self):
+        return self._phenotype_set
 
     @property
     def size(self):
         return self._num_phenotypes
 
+    @property
+    def is_leaf(self):
+        return True
+
     def is_empty(self):
         return self._num_phenotypes == 0
 
-    def gen_phenotype_matching_map(self, encoding, obs, match_cache):
-
-        phenotype_matching_map = {}
-        num_matching_ops_done = 0
-
-        for phenotype in self._phenotypes:
-            try:
-                does_match = match_cache[phenotype]
-            except KeyError:
-                does_match = encoding.does_phenotype_match(phenotype, obs)
-                num_matching_ops_done += 1
-
-            phenotype_matching_map[phenotype] = does_match
-
-        return (phenotype_matching_map, num_matching_ops_done)
+    def gen_phenotype_matching_map(self, encoding, obs):
+        return {
+            phenotype: encoding.does_phenotype_match(phenotype, obs)
+            for phenotype in self._phenotype_set
+        }
 
     def add(self, addee, encoding):
         self._phenotypes.append(addee)
