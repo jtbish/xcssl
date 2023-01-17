@@ -10,8 +10,6 @@ class ConditionABC(metaclass=abc.ABCMeta):
         self._encoding = encoding
 
         self._phenotype = self._encoding.decode(self._alleles)
-        self._generality = \
-            self._encoding.calc_phenotype_generality(self._phenotype)
 
     @property
     def alleles(self):
@@ -23,7 +21,7 @@ class ConditionABC(metaclass=abc.ABCMeta):
 
     @property
     def generality(self):
-        return self._generality
+        return self._phenotype.generality
 
     def does_match(self, obs):
         return self._encoding.does_phenotype_match(self._phenotype, obs)

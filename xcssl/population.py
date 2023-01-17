@@ -1,6 +1,8 @@
 import abc
 
+from .forest import SubsumptionForest
 from .partitioning import LSHPartitioning
+from .tree import SubsumptionTree
 
 
 class PopulationABC(metaclass=abc.ABCMeta):
@@ -89,19 +91,28 @@ class VanillaPopulation(PopulationABC):
 
 class FastMatchingPopulation(PopulationABC):
     """Population that uses an index to perform fast matching."""
-    def __init__(self, vanilla_pop, encoding, lsh):
+    def __init__(self, vanilla_pop, encoding, lsh, index_type, **index_kwargs):
         """FastMatchingPopulation needs to be inited from existing
         VanillaPopulation."""
+
         assert isinstance(vanilla_pop, VanillaPopulation)
 
         self._clfrs = vanilla_pop._clfrs
         self._num_micros = vanilla_pop._num_micros
         self._ops_history = vanilla_pop._ops_history
 
-        self._index = LSHPartitioning(
+        if index_type == "flat":
+            index_cls = LSHPartitioning
+        elif index_type == "forest":
+            index_cls = SubsumptionForest
+        else:
+            assert False
+
+        self._index = index_cls(
             encoding=encoding,
             lsh=lsh,
-            phenotypes=[clfr.condition.phenotype for clfr in self._clfrs])
+            phenotypes=[clfr.condition.phenotype for clfr in self._clfrs],
+            **index_kwargs)
 
     def add_new(self, clfr, op, time_step=None):
         self._clfrs.append(clfr)

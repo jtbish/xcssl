@@ -116,7 +116,7 @@ class SubsumptionForest:
         n = len(node_ls)
         cost_mat = {node_id: {} for node_id in range(n)}
 
-        # iter over right off-diag of mat, fill it symmetrically
+        # iter over right off-diag of cost mat, fill it symmetrically
         # can use ranges of ids in these loops since initially the ids form
         # seq. of len n with no gaps
         for row_node_id in range(0, (n - 1)):
@@ -204,7 +204,7 @@ class SubsumptionForest:
                 # first, copy over all the entries for the non merged
                 # node ids
                 non_merged_node_id_set = (
-                    set(cost_mat.keys()) -
+                    cost_mat.keys() -
                     {left_child_node_id, right_child_node_id})
 
                 next_cost_mat = {
