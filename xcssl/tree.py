@@ -307,6 +307,7 @@ class SubsumptionTree:
             do_add = False
 
         if do_add:
+            # TODO should check rebuild here?
             self._add_phenotype(phenotype)
             self._num_updates += 1
             self._try_rebuild_tree()
@@ -353,6 +354,7 @@ class SubsumptionTree:
 
         if do_remove:
             del self._phenotype_count_map[phenotype]
+            # TODO should check rebuild here?
             self._remove_phenotype(phenotype)
             self._num_updates += 1
             self._try_rebuild_tree()
