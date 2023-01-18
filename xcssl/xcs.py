@@ -248,7 +248,8 @@ class FastMatchingXCS(XCSABC):
                 self._match_mode = MatchingModes.fast
 
                 # replace vanilla pop with FM pop
-                lsh = self._encoding.make_lsh()
-                self._pop = FastMatchingPopulation(vanilla_pop=self._pop,
-                                                   encoding=self._encoding,
-                                                   lsh=lsh)
+                self._pop = FastMatchingPopulation(
+                    vanilla_pop=self._pop,
+                    encoding=self._encoding,
+                    stree_max_depth=get_hp("stree_max_depth"),
+                    stree_theta_build=get_hp("stree_theta_build"))

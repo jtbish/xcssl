@@ -1,7 +1,7 @@
 import abc
+import math
 
-from .forest import SubsumptionForest
-from .partitioning import LSHPartitioning
+from .hyperparams import get_hyperparam as get_hp
 from .tree import SubsumptionTree
 
 
@@ -86,12 +86,19 @@ class VanillaPopulation(PopulationABC):
         return [clfr for clfr in self._clfrs if clfr.does_match(obs)]
 
     def gen_matching_trace(self, obs):
-        return [clfr.does_match(obs) for clfr in self._clfrs]
+        trace = [clfr.does_match(obs) for clfr in self._clfrs]
+        num_matching_ops_done = len(trace)
+
+        return (trace, num_matching_ops_done)
 
 
 class FastMatchingPopulation(PopulationABC):
     """Population that uses an index to perform fast matching."""
-    def __init__(self, vanilla_pop, encoding, lsh, index_type, **index_kwargs):
+    def __init__(self,
+                 vanilla_pop,
+                 encoding,
+                 stree_max_depth=math.inf,
+                 stree_theta_build=math.inf):
         """FastMatchingPopulation needs to be inited from existing
         VanillaPopulation."""
 
@@ -101,18 +108,11 @@ class FastMatchingPopulation(PopulationABC):
         self._num_micros = vanilla_pop._num_micros
         self._ops_history = vanilla_pop._ops_history
 
-        if index_type == "flat":
-            index_cls = LSHPartitioning
-        elif index_type == "forest":
-            index_cls = SubsumptionForest
-        else:
-            assert False
-
-        self._index = index_cls(
+        self._index = SubsumptionTree(
             encoding=encoding,
-            lsh=lsh,
             phenotypes=[clfr.condition.phenotype for clfr in self._clfrs],
-            **index_kwargs)
+            max_depth=stree_max_depth,
+            theta_build=stree_theta_build)
 
     def add_new(self, clfr, op, time_step=None):
         self._clfrs.append(clfr)

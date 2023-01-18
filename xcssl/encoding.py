@@ -311,9 +311,9 @@ class TernaryEncoding(EncodingABC):
 
                 # figure out who subsumes each phenotype in the phenotype set
 
-                parent_subsumed_set = set()
                 split_a_subsumed_set = set()
                 split_b_subsumed_set = set()
+                parent_subsumed_set = set()
 
                 for phenotype in phenotype_set:
 
@@ -364,9 +364,9 @@ class TernaryEncoding(EncodingABC):
 
                     min_cost = cost
                     split_phenotypes = (split_phenotype_a, split_phenotype_b)
-                    split_subsumed_sets = (parent_subsumed_set,
-                                           split_a_subsumed_set,
-                                           split_b_subsumed_set)
+                    split_subsumed_sets = (split_a_subsumed_set,
+                                           split_b_subsumed_set,
+                                           parent_subsumed_set)
 
         assert split_phenotypes is not None
         assert split_subsumed_sets is not None
