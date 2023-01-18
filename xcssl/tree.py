@@ -310,6 +310,7 @@ class SubsumptionTree:
             # TODO should check rebuild here?
             self._add_phenotype(phenotype)
             self._num_updates += 1
+
             self._try_rebuild_tree()
 
     def _add_phenotype(self, addee):
@@ -357,6 +358,7 @@ class SubsumptionTree:
             # TODO should check rebuild here?
             self._remove_phenotype(phenotype)
             self._num_updates += 1
+
             self._try_rebuild_tree()
 
         else:
