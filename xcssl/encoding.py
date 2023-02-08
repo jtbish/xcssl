@@ -29,8 +29,7 @@ class EncodingABC(metaclass=abc.ABCMeta):
         return self.make_phenotype(phenotype_elems)
 
     def make_phenotype(self, phenotype_elems):
-        phenotype_genr = self.calc_phenotype_generality(phenotype_elems)
-        return Phenotype(phenotype_elems, phenotype_genr)
+        return Phenotype(phenotype_elems)
 
     def make_lsh(self):
         num_dims = self.calc_num_phenotype_vec_dims()
@@ -50,7 +49,7 @@ class EncodingABC(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def calc_phenotype_generality(self, phenotype_elems):
+    def calc_phenotype_generality(self, phenotype):
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -132,9 +131,9 @@ class TernaryEncoding(EncodingABC):
         # genotype == phenotype
         return tuple(cond_alleles)
 
-    def calc_phenotype_generality(self, phenotype_elems):
+    def calc_phenotype_generality(self, phenotype):
         """Number of don't care elems."""
-        return phenotype_elems.count(TERNARY_HASH)
+        return phenotype.elems.count(TERNARY_HASH)
 
     def mutate_condition_alleles(self, cond_alleles, obs):
         mut_alleles = []
@@ -288,6 +287,7 @@ class TernaryEncoding(EncodingABC):
         min_cost = None
         split_phenotypes = None
         split_subsumed_sets = None
+        split_dim_idx = None
 
         for (elem_idx,
              parent_elem) in enumerate(parent_subsumer_phenotype.elems):
@@ -310,55 +310,34 @@ class TernaryEncoding(EncodingABC):
                     split_phenotype_b_elems)
 
                 # figure out who subsumes each phenotype in the phenotype set
-
                 split_a_subsumed_set = set()
                 split_b_subsumed_set = set()
                 parent_subsumed_set = set()
 
                 for phenotype in phenotype_set:
 
-                    if self.does_subsume(split_phenotype_a, phenotype):
+                    # check subsumption for appropriate elem of phenotype
+                    phenotype_elem = phenotype[elem_idx]
+
+                    if phenotype_elem == 0:
                         split_a_subsumed_set.add(phenotype)
 
-                    elif self.does_subsume(split_phenotype_b, phenotype):
+                    elif phenotype_elem == 1:
                         split_b_subsumed_set.add(phenotype)
 
                     else:
+                        # must be a hash so not subsumed in either split
                         parent_subsumed_set.add(phenotype)
 
-                # calc. the cost of this split config.
-                # cost incorporates surface area heuristic when split node
-                # contains more than a single subsumed phenotype
-                p_genr = parent_subsumer_phenotype.generality
-                sa_genr = split_phenotype_a.generality
-                sb_genr = split_phenotype_b.generality
-
-                assert sa_genr <= p_genr
-                assert sb_genr <= p_genr
-
-                n_p = len(parent_subsumed_set)
-                n_sa = len(split_a_subsumed_set)
-                n_sb = len(split_b_subsumed_set)
-
-                p_cost = n_p
-
-                sa_cost = None
-                if n_sa == 0:
-                    sa_cost = 0
-                elif n_sa == 1:
-                    sa_cost = 1
-                else:
-                    sa_cost = (1 + ((sa_genr / p_genr) * n_sa))
-
-                sb_cost = None
-                if n_sb == 0:
-                    sb_cost = 0
-                elif n_sb == 1:
-                    sb_cost = 1
-                else:
-                    sb_cost = (1 + ((sb_genr / p_genr) * n_sb))
-
-                cost = (p_cost + sa_cost + sb_cost)
+                # Cost of this split config. is simply the number of phenotypes
+                # "left behind" in the parent node.
+                # This is because, due to SAH, each of the branches underneath
+                # this parent node, 0/1, is equally likely to be taken, causing
+                # overall cost of both child nodes to be 0.5 * n, where n is
+                # num phenotype contained in both child nodes. Thus, no matter
+                # the split between the child nodes, this quantity (0.5 *n) is
+                # invariant, so don't actually need to calc. it.
+                cost = len(parent_subsumed_set)
 
                 if min_cost is None or cost < min_cost:
 
@@ -367,11 +346,17 @@ class TernaryEncoding(EncodingABC):
                     split_subsumed_sets = (split_a_subsumed_set,
                                            split_b_subsumed_set,
                                            parent_subsumed_set)
+                    split_dim_idx = elem_idx
 
         assert split_phenotypes is not None
         assert split_subsumed_sets is not None
+        assert split_dim_idx is not None
 
-        return (split_phenotypes, split_subsumed_sets)
+        # 0 / False -> left child, 1 / True -> right child
+        obs_elem_decision_func = (lambda elem: elem == 1)
+
+        return (split_phenotypes, split_subsumed_sets, split_dim_idx,
+                obs_elem_decision_func)
 
 
 class UnorderedBoundEncodingABC(EncodingABC, metaclass=abc.ABCMeta):
@@ -412,7 +397,7 @@ class UnorderedBoundEncodingABC(EncodingABC, metaclass=abc.ABCMeta):
         return phenotype
 
     @abc.abstractmethod
-    def calc_phenotype_generality(self, phenotype_elems):
+    def calc_phenotype_generality(self, phenotype):
         raise NotImplementedError
 
     def mutate_condition_alleles(self, cond_alleles, obs=None):
@@ -482,10 +467,10 @@ class IntegerUnorderedBoundEncoding(UnorderedBoundEncodingABC):
         upper = min(upper, dim.upper)
         return (lower, upper)
 
-    def calc_phenotype_generality(self, phenotype_elems):
+    def calc_phenotype_generality(self, phenotype):
         # condition generality calc as in
         # Wilson '00 Mining Oblique Data with XCS
-        cond_intervals = phenotype_elems
+        cond_intervals = phenotype.elems
         numer = sum([interval.span for interval in cond_intervals])
         denom = sum([dim.span for dim in self._obs_space])
         generality = numer / denom
@@ -522,8 +507,8 @@ class RealUnorderedBoundEncoding(UnorderedBoundEncodingABC):
         upper = min(upper, dim.upper)
         return (lower, upper)
 
-    def calc_phenotype_generality(self, phenotype_elems):
-        cond_intervals = phenotype_elems
+    def calc_phenotype_generality(self, phenotype):
+        cond_intervals = phenotype.elems
         numer = sum([interval.span for interval in cond_intervals])
         denom = sum([dim for dim in self._obs_space])
         generality = numer / denom

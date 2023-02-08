@@ -1,9 +1,13 @@
 import abc
 import logging
 import math
+from collections import namedtuple
 
 _MIN_DEPTH = 1
 _MIN_THETA_BUILD = 1
+
+FlatTreeNode = namedtuple("FlatTreeNode", ["node", "left_child_offset",
+    "right_child_offset"])
 
 
 class SubsumptionTree:
@@ -75,8 +79,8 @@ class SubsumptionTree:
 
         root_subsumer = encoding.make_maximally_general_phenotype()
 
-        (split_phenotypes,
-         split_subsumed_sets) = encoding.split_phenotype_set_on_parent(
+        (split_phenotypes, split_subsumed_sets, split_dim_idx,
+         obs_elem_decision_func) = encoding.split_phenotype_set_on_parent(
              parent_subsumer_phenotype=root_subsumer,
              phenotype_set=phenotype_set)
 
@@ -92,32 +96,31 @@ class SubsumptionTree:
                                                       split_b_subsumed_set,
                                                       depth=(depth + 1))
 
-        return RootNode(root_subsumer, root_subsumed_set, root_left_child_node,
-                        root_right_child_node)
+        return InternalNode(root_subsumer, root_subsumed_set,
+                            root_left_child_node, root_right_child_node,
+                            split_dim_idx, obs_elem_decision_func)
 
     def _recursive_build(self, split_phenotype, split_subsumed_set, depth):
 
         if depth == self._max_depth:
             # terminate recursion: make a leaf node
             return LeafNode(subsumer_phenotype=split_phenotype,
-                            subsumed_phenotype_set=split_subsumed_set,
-                            depth=depth)
+                            subsumed_phenotype_set=split_subsumed_set)
 
         else:
             # keep on splitting if possible
-            size = len(split_subsumed_set)
 
-            if (size == 0 or size == 1):
+            if len(split_subsumed_set) < 2:
                 # no more splits possible: make a leaf node
                 return LeafNode(subsumer_phenotype=split_phenotype,
-                                subsumed_phenotype_set=split_subsumed_set,
-                                depth=depth)
+                                subsumed_phenotype_set=split_subsumed_set)
 
             else:
                 # split via recursion
                 parent_subsumer_phenotype = split_phenotype
 
-                (split_phenotypes, split_subsumed_sets
+                (split_phenotypes, split_subsumed_sets, split_dim_idx,
+                 obs_elem_decision_func
                  ) = self._encoding.split_phenotype_set_on_parent(
                      parent_subsumer_phenotype,
                      phenotype_set=split_subsumed_set)
@@ -136,9 +139,10 @@ class SubsumptionTree:
                 return InternalNode(
                     subsumer_phenotype=parent_subsumer_phenotype,
                     subsumed_phenotype_set=parent_subsumed_set,
-                    depth=depth,
                     left_child_node=left_child_node,
-                    right_child_node=right_child_node)
+                    right_child_node=right_child_node,
+                    split_dim_idx=split_dim_idx,
+                    obs_elem_decision_func=obs_elem_decision_func)
 
     def _flatten_tree_and_make_phenotype_node_map(self, root_node):
         flat_tree = []
@@ -165,135 +169,59 @@ class SubsumptionTree:
         return (flat_tree, phenotype_node_map)
 
     def gen_sparse_phenotype_matching_map(self, obs):
-        return self._gen_sparse_phenotype_matching_map_stack_based(obs)
-
-    def _gen_sparse_phenotype_matching_map_stack_based(self, obs):
 
         sparse_phenotype_matching_map = {}
 
-        root = self._root_node
+        curr_node = self._root_node
 
-        if root.size > 0:
+        if curr_node.size > 0:
             sparse_phenotype_matching_map.update(
-                root.gen_phenotype_matching_map(self._encoding, obs))
+                curr_node.gen_phenotype_matching_map(self._encoding, obs))
 
-        stack = []
-        stack.append(root.right_child_node)
-        stack.append(root.left_child_node)
+        # follow a path down the tree, starting at root
+        while not curr_node.is_leaf:
 
-        while len(stack) > 0:
+            obs_elem = obs[curr_node.split_dim_idx]
 
-            node = stack.pop()
-            subsumer = node.subsumer_phenotype
+            next_node = (curr_node.right_child_node
+                         if curr_node.obs_elem_decision_func(obs_elem) else
+                         curr_node.left_child_node)
 
-            if not node.is_leaf:
+            if next_node.size > 0:
+                sparse_phenotype_matching_map.update(
+                    next_node.gen_phenotype_matching_map(self._encoding, obs))
 
-                subsumer_does_match = self._encoding.does_phenotype_match(
-                    subsumer, obs)
-
-                if subsumer_does_match:
-
-                    # match any subsumed phenotypes then add children to
-                    # traversal
-                    if node.size > 0:
-                        sparse_phenotype_matching_map.update(
-                            node.gen_phenotype_matching_map(
-                                self._encoding, obs))
-
-                    stack.append(node.right_child_node)
-                    stack.append(node.left_child_node)
-
-            else:
-                size = node.size
-
-                if size == 1:
-                    # match the sole subsumed phenotype of the leaf node
-                    # directly, without first checking the subsumer phenotype
-                    sparse_phenotype_matching_map.update(
-                        node.gen_phenotype_matching_map(self._encoding, obs))
-
-                elif size > 1:
-                    # match subsumed phenotypes only if subsumer matches
-                    subsumer_does_match = self._encoding.does_phenotype_match(
-                        subsumer, obs)
-
-                    if subsumer_does_match:
-
-                        sparse_phenotype_matching_map.update(
-                            node.gen_phenotype_matching_map(
-                                self._encoding, obs))
-
-                # else if size is 0 nothing to do!
+            curr_node = next_node
 
         return sparse_phenotype_matching_map
 
     def gen_matching_trace(self, obs):
-        return self._gen_matching_trace_stack_based(obs)
-
-    def _gen_matching_trace_stack_based(self, obs):
 
         sparse_phenotype_matching_map = {}
         num_matching_ops_done = 0
 
-        root = self._root_node
+        curr_node = self._root_node
 
-        if root.size > 0:
+        if curr_node.size > 0:
             sparse_phenotype_matching_map.update(
-                root.gen_phenotype_matching_map(self._encoding, obs))
-            num_matching_ops_done += root.size
+                curr_node.gen_phenotype_matching_map(self._encoding, obs))
+            num_matching_ops_done += curr_node.size
 
-        stack = []
-        stack.append(root.right_child_node)
-        stack.append(root.left_child_node)
+        # follow a path down the tree, starting at root
+        while not curr_node.is_leaf:
 
-        while len(stack) > 0:
+            obs_elem = obs[curr_node.split_dim_idx]
 
-            node = stack.pop()
-            subsumer = node.subsumer_phenotype
+            next_node = (curr_node.right_child_node
+                         if curr_node.obs_elem_decision_func(obs_elem) else
+                         curr_node.left_child_node)
 
-            if not node.is_leaf:
+            if next_node.size > 0:
+                sparse_phenotype_matching_map.update(
+                    next_node.gen_phenotype_matching_map(self._encoding, obs))
+                num_matching_ops_done += next_node.size
 
-                subsumer_does_match = self._encoding.does_phenotype_match(
-                    subsumer, obs)
-                num_matching_ops_done += 1
-
-                if subsumer_does_match:
-
-                    # match any subsumed phenotypes then add children to
-                    # traversal
-                    if node.size > 0:
-                        sparse_phenotype_matching_map.update(
-                            node.gen_phenotype_matching_map(
-                                self._encoding, obs))
-                        num_matching_ops_done += node.size
-
-                    stack.append(node.right_child_node)
-                    stack.append(node.left_child_node)
-
-            else:
-                size = node.size
-
-                if size == 1:
-                    # match the sole subsumed phenotype of the leaf node
-                    # directly, without first checking the subsumer phenotype
-                    sparse_phenotype_matching_map.update(
-                        node.gen_phenotype_matching_map(self._encoding, obs))
-                    num_matching_ops_done += 1
-
-                elif size > 1:
-                    # match subsumed phenotypes only if subsumer matches
-                    subsumer_does_match = self._encoding.does_phenotype_match(
-                        subsumer, obs)
-                    num_matching_ops_done += 1
-
-                    if subsumer_does_match:
-
-                        sparse_phenotype_matching_map.update(
-                            node.gen_phenotype_matching_map(
-                                self._encoding, obs))
-                        num_matching_ops_done += size
-
-                # else if size is 0 nothing to do!
+            curr_node = next_node
 
         return (sparse_phenotype_matching_map, num_matching_ops_done)
 
@@ -314,35 +242,33 @@ class SubsumptionTree:
             self._try_rebuild_tree()
 
     def _add_phenotype(self, addee):
-        # search through tree to find the most specific node
-        # which the addee is subsumed by, then add the addee to the subsumed
-        # set of that node
+        curr_node = self._root_node
 
-        root = self._root_node
+        subsumer_node = None
 
-        min_subsumer_genr = root.subsumer_phenotype.generality
-        subsumer_node = root
+        while True:
 
-        stack = []
-        stack.append(root.right_child_node)
-        stack.append(root.left_child_node)
+            if curr_node.is_leaf:
+                # can't descend any further
+                subsumer_node = curr_node
+                break
 
-        while len(stack) > 0:
+            if self._encoding.does_subsume(
+                    curr_node.left_child_node.subsumer_phenotype, addee):
+                # examine left
+                curr_node = curr_node.left_child_node
 
-            node = stack.pop()
-            subsumer = node.subsumer_phenotype
+            elif self._encoding.does_subsume(
+                    curr_node.right_child_node.subsumer_phenotype, addee):
+                # examine right
+                curr_node = curr_node.right_child_node
 
-            if self._encoding.does_subsume(subsumer, addee):
+            else:
+                # stop here
+                subsumer_node = curr_node
+                break
 
-                subsumer_genr = subsumer.generality
-
-                if subsumer_genr < min_subsumer_genr:
-                    min_subsumer_genr = subsumer_genr
-                    subsumer_node = node
-
-                if not node.is_leaf:
-                    stack.append(node.right_child_node)
-                    stack.append(node.left_child_node)
+        assert subsumer_node is not None
 
         subsumer_node.add_phenotype(addee)
         self._phenotype_node_map[addee] = subsumer_node
@@ -387,10 +313,9 @@ class SubsumptionTree:
 
 
 class NodeABC(metaclass=abc.ABCMeta):
-    def __init__(self, subsumer_phenotype, subsumed_phenotype_set, depth):
+    def __init__(self, subsumer_phenotype, subsumed_phenotype_set):
         self._subsumer_phenotype = subsumer_phenotype
         self._subsumed_phenotype_set = subsumed_phenotype_set
-        self._depth = depth
 
         self._size = len(self._subsumed_phenotype_set)
 
@@ -405,10 +330,6 @@ class NodeABC(metaclass=abc.ABCMeta):
         volume, but not by the bounding volumes of either of its children (if
         it has children, i.e. is not a leaf node)."""
         return self._subsumed_phenotype_set
-
-    @property
-    def depth(self):
-        return self._depth
 
     @property
     def size(self):
@@ -435,40 +356,17 @@ class NodeABC(metaclass=abc.ABCMeta):
         assert self._size >= 0
 
 
-class RootNode(NodeABC):
-    _DEPTH = 0
-
-    def __init__(self, maximally_general_phenotype, subsumed_phenotype_set,
-                 left_child_node, right_child_node):
-
-        super().__init__(subsumer_phenotype=maximally_general_phenotype,
-                         subsumed_phenotype_set=subsumed_phenotype_set,
-                         depth=self._DEPTH)
-
-        self._left_child_node = left_child_node
-        self._right_child_node = right_child_node
-
-    @property
-    def left_child_node(self):
-        return self._left_child_node
-
-    @property
-    def right_child_node(self):
-        return self._right_child_node
-
-    @property
-    def is_leaf(self):
-        return False
-
-
 class InternalNode(NodeABC):
-    def __init__(self, subsumer_phenotype, subsumed_phenotype_set, depth,
-                 left_child_node, right_child_node):
+    def __init__(self, subsumer_phenotype, subsumed_phenotype_set,
+                 left_child_node, right_child_node, split_dim_idx,
+                 obs_elem_decision_func):
 
-        super().__init__(subsumer_phenotype, subsumed_phenotype_set, depth)
+        super().__init__(subsumer_phenotype, subsumed_phenotype_set)
 
         self._left_child_node = left_child_node
         self._right_child_node = right_child_node
+        self._split_dim_idx = split_dim_idx
+        self._obs_elem_decision_func = obs_elem_decision_func
 
     @property
     def left_child_node(self):
@@ -477,6 +375,14 @@ class InternalNode(NodeABC):
     @property
     def right_child_node(self):
         return self._right_child_node
+
+    @property
+    def split_dim_idx(self):
+        return self._split_dim_idx
+
+    @property
+    def obs_elem_decision_func(self):
+        return self._obs_elem_decision_func
 
     @property
     def is_leaf(self):
