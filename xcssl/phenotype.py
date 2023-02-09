@@ -1,7 +1,6 @@
 class Phenotype:
     def __init__(self, elems):
         self._elems = tuple(elems)
-
         # cache the hash value for faster set/dict + eq operations
         self._hash = hash(self._elems)
 

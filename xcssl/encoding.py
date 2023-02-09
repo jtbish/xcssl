@@ -1,7 +1,4 @@
 import abc
-import copy
-
-import numpy as np
 
 from .condition import TERNARY_HASH, IntervalCondition, TernaryCondition
 from .hyperparams import get_hyperparam as get_hp
@@ -34,10 +31,6 @@ class EncodingABC(metaclass=abc.ABCMeta):
     def make_lsh(self):
         num_dims = self.calc_num_phenotype_vec_dims()
         return self._make_lsh(num_dims)
-
-    @abc.abstractmethod
-    def calc_max_generality(self):
-        raise NotImplementedError
 
     @abc.abstractmethod
     def gen_covering_condition(self, obs):
@@ -90,14 +83,6 @@ class EncodingABC(metaclass=abc.ABCMeta):
     def _make_lsh(self, num_dims):
         raise NotImplementedError
 
-    @abc.abstractmethod
-    def make_maximally_general_phenotype(self):
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def split_phenotype_set_on_parent(self, parent_phenotype, phenotype_set):
-        raise NotImplementedError
-
 
 class TernaryEncoding(EncodingABC):
     _COND_CLS = TernaryCondition
@@ -109,9 +94,6 @@ class TernaryEncoding(EncodingABC):
             assert dim.lower == 0
             assert dim.upper == 1
         super().__init__(obs_space)
-
-    def calc_max_generality(self):
-        return len(self._obs_space)
 
     def gen_covering_condition(self, obs):
         num_alleles = self._num_obs_dims
@@ -225,31 +207,6 @@ class TernaryEncoding(EncodingABC):
 
         return self.make_phenotype(subsumer_elems)
 
-    def make_subsumer_phenotype_and_calc_dist(self, phenotype_a, phenotype_b):
-        subsumer_elems = []
-        dist = 0
-
-        for (a_elem, b_elem) in zip(phenotype_a, phenotype_b):
-
-            if a_elem == b_elem:
-                # no bit diff so dist not increased
-                subsumer_elems.append(a_elem)
-
-            else:
-                if a_elem == TERNARY_HASH or b_elem == TERNARY_HASH:
-                    # if one of the elems is hash then the other is at most 1
-                    # bit diff away (being either 0 or 1)
-                    dist += 1
-                else:
-                    # some combo of 0 and 1, implying bit diff is 2
-                    dist += 2
-
-                # in either case only way to subsume both is with hash
-                subsumer_elems.append(TERNARY_HASH)
-
-        subsumer_phenotype = self.make_phenotype(subsumer_elems)
-        return (subsumer_phenotype, dist)
-
     def expand_subsumer_phenotype(self, subsumer_phenotype, new_phenotype):
 
         new_subsumer_elems = []
@@ -276,87 +233,6 @@ class TernaryEncoding(EncodingABC):
         num_projs = get_hp("lsh_num_projs")
         seed = get_hp("seed")
         return HammingLSH(num_dims, num_projs, seed)
-
-    def make_maximally_general_phenotype(self):
-        phenotype_elems = ([TERNARY_HASH] * self._num_obs_dims)
-        return self.make_phenotype(phenotype_elems)
-
-    def split_phenotype_set_on_parent(self, parent_subsumer_phenotype,
-                                      phenotype_set):
-
-        min_cost = None
-        split_phenotypes = None
-        split_subsumed_sets = None
-        split_dim_idx = None
-
-        for (elem_idx,
-             parent_elem) in enumerate(parent_subsumer_phenotype.elems):
-
-            # can only split on a hash
-            if parent_elem == TERNARY_HASH:
-
-                # do the splits
-
-                # split a: # -> 0
-                split_phenotype_a_elems = list(parent_subsumer_phenotype.elems)
-                split_phenotype_a_elems[elem_idx] = 0
-                split_phenotype_a = self.make_phenotype(
-                    split_phenotype_a_elems)
-
-                # split b: # -> 1
-                split_phenotype_b_elems = list(parent_subsumer_phenotype.elems)
-                split_phenotype_b_elems[elem_idx] = 1
-                split_phenotype_b = self.make_phenotype(
-                    split_phenotype_b_elems)
-
-                # figure out who subsumes each phenotype in the phenotype set
-                split_a_subsumed_set = set()
-                split_b_subsumed_set = set()
-                parent_subsumed_set = set()
-
-                for phenotype in phenotype_set:
-
-                    # check subsumption for appropriate elem of phenotype
-                    phenotype_elem = phenotype[elem_idx]
-
-                    if phenotype_elem == 0:
-                        split_a_subsumed_set.add(phenotype)
-
-                    elif phenotype_elem == 1:
-                        split_b_subsumed_set.add(phenotype)
-
-                    else:
-                        # must be a hash so not subsumed in either split
-                        parent_subsumed_set.add(phenotype)
-
-                # Cost of this split config. is simply the number of phenotypes
-                # "left behind" in the parent node.
-                # This is because, due to SAH, each of the branches underneath
-                # this parent node, 0/1, is equally likely to be taken, causing
-                # overall cost of both child nodes to be 0.5 * n, where n is
-                # num phenotype contained in both child nodes. Thus, no matter
-                # the split between the child nodes, this quantity (0.5 *n) is
-                # invariant, so don't actually need to calc. it.
-                cost = len(parent_subsumed_set)
-
-                if min_cost is None or cost < min_cost:
-
-                    min_cost = cost
-                    split_phenotypes = (split_phenotype_a, split_phenotype_b)
-                    split_subsumed_sets = (split_a_subsumed_set,
-                                           split_b_subsumed_set,
-                                           parent_subsumed_set)
-                    split_dim_idx = elem_idx
-
-        assert split_phenotypes is not None
-        assert split_subsumed_sets is not None
-        assert split_dim_idx is not None
-
-        # 0 / False -> left child, 1 / True -> right child
-        obs_elem_decision_func = (lambda elem: elem == 1)
-
-        return (split_phenotypes, split_subsumed_sets, split_dim_idx,
-                obs_elem_decision_func)
 
 
 class UnorderedBoundEncodingABC(EncodingABC, metaclass=abc.ABCMeta):

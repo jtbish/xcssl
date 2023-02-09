@@ -244,12 +244,11 @@ class FastMatchingXCS(XCSABC):
 
                 logging.info(f"Switching to fast matching @ time step "
                              f"{self._time_step}")
-
                 self._match_mode = MatchingModes.fast
 
+                lsh = self._encoding.make_lsh()
+
                 # replace vanilla pop with FM pop
-                self._pop = FastMatchingPopulation(
-                    vanilla_pop=self._pop,
-                    encoding=self._encoding,
-                    stree_max_depth=get_hp("stree_max_depth"),
-                    stree_theta_build=get_hp("stree_theta_build"))
+                self._pop = FastMatchingPopulation(vanilla_pop=self._pop,
+                                                   encoding=self._encoding,
+                                                   lsh=lsh)

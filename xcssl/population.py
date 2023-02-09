@@ -2,7 +2,7 @@ import abc
 import math
 
 from .hyperparams import get_hyperparam as get_hp
-from .tree import SubsumptionTree
+from .partitioning import LSHPartitioning
 
 
 class PopulationABC(metaclass=abc.ABCMeta):
@@ -94,11 +94,7 @@ class VanillaPopulation(PopulationABC):
 
 class FastMatchingPopulation(PopulationABC):
     """Population that uses an index to perform fast matching."""
-    def __init__(self,
-                 vanilla_pop,
-                 encoding,
-                 stree_max_depth=math.inf,
-                 stree_theta_build=math.inf):
+    def __init__(self, vanilla_pop, encoding, lsh):
         """FastMatchingPopulation needs to be inited from existing
         VanillaPopulation."""
 
@@ -108,11 +104,10 @@ class FastMatchingPopulation(PopulationABC):
         self._num_micros = vanilla_pop._num_micros
         self._ops_history = vanilla_pop._ops_history
 
-        self._index = SubsumptionTree(
+        self._index = LSHPartitioning(
             encoding=encoding,
-            phenotypes=[clfr.condition.phenotype for clfr in self._clfrs],
-            max_depth=stree_max_depth,
-            theta_build=stree_theta_build)
+            lsh=lsh,
+            phenotypes=[clfr.condition.phenotype for clfr in self._clfrs])
 
     def add_new(self, clfr, op, time_step=None):
         self._clfrs.append(clfr)
