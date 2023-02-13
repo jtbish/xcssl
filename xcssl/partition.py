@@ -1,4 +1,4 @@
-class LSHPartitioning:
+class SubsumptionPartition:
     def __init__(self, encoding, lsh, phenotypes):
         self._encoding = encoding
         self._lsh = lsh
@@ -10,7 +10,7 @@ class LSHPartitioning:
             self._lsh,
             phenotype_set=self._phenotype_count_map.keys())
 
-        self._lsh_key_partition_map = self._gen_lsh_key_partition_map(
+        self._lsh_key_cell_map = self._gen_lsh_key_cell_map(
             self._phenotype_lsh_key_map, self._encoding)
 
     def _init_phenotype_count_map(self, phenotypes):
@@ -38,58 +38,56 @@ class LSHPartitioning:
 
         return phenotype_lsh_key_map
 
-    def _gen_lsh_key_partition_map(self, phenotype_lsh_key_map, encoding):
-        """Generates the mapping between LSH keys and Partition objs."""
-        # first partition the phenotypes into LSH key buckets as sets
-        partitions = {}
+    def _gen_lsh_key_cell_map(self, phenotype_lsh_key_map, encoding):
+        """Generates the mapping between LSH keys and Cell objs."""
+        # first partition the phenotypes into subsets based on lsh key
+        partition = {}
 
         for (phenotype, lsh_key) in phenotype_lsh_key_map.items():
-            # try add phenotype to existing partition, else make new partition
+            # try add phenotype to existing subset, else make new subset
             try:
-                partitions[lsh_key].add(phenotype)
+                partition[lsh_key].add(phenotype)
             except KeyError:
-                partitions[lsh_key] = {phenotype}
+                partition[lsh_key] = {phenotype}
 
-        # then make the actual Partition objs. from these
-        lsh_key_partition_map = {}
-        for (lsh_key, phenotype_set) in partitions.items():
+        # then make the actual Cell objs. from these subsets
+        lsh_key_cell_map = {}
+
+        for (lsh_key, phenotype_set) in partition.items():
 
             if len(phenotype_set) == 1:
-                partition = Partition.from_single_phenotype(
-                    (tuple(phenotype_set))[0])
+                cell = Cell.from_single_phenotype((tuple(phenotype_set))[0])
             else:
-                partition = Partition.from_phenotype_set(
-                    phenotype_set, encoding)
+                cell = Cell.from_phenotype_set(phenotype_set, encoding)
 
-            lsh_key_partition_map[lsh_key] = partition
+            lsh_key_cell_map[lsh_key] = cell
 
-        return lsh_key_partition_map
+        return lsh_key_cell_map
 
     def gen_sparse_phenotype_matching_map(self, obs):
 
         sparse_phenotype_matching_map = {}
 
-        for partition in self._lsh_key_partition_map.values():
+        for cell in self._lsh_key_cell_map.values():
 
-            subsumer = partition.subsumer_phenotype
+            subsumer = cell.subsumer_phenotype
 
             subsumer_does_match = self._encoding.does_phenotype_match(
                 subsumer, obs)
 
             if subsumer_does_match:
 
-                if partition.size == 1:
-                    # don't need to check the sole member of the partition
+                if cell.size == 1:
+                    # don't need to check the sole member of the cell
                     # since it is identical to the subsumer
 
                     sparse_phenotype_matching_map[subsumer] = True
 
                 else:
-                    # otherwise, need to check all members of the partition
+                    # otherwise, need to check all members of the cell
 
                     sparse_phenotype_matching_map.update(
-                        partition.gen_phenotype_matching_map(
-                            self._encoding, obs))
+                        cell.gen_phenotype_matching_map(self._encoding, obs))
 
         return sparse_phenotype_matching_map
 
@@ -98,9 +96,9 @@ class LSHPartitioning:
         sparse_phenotype_matching_map = {}
         num_matching_ops_done = 0
 
-        for partition in self._lsh_key_partition_map.values():
+        for cell in self._lsh_key_cell_map.values():
 
-            subsumer = partition.subsumer_phenotype
+            subsumer = cell.subsumer_phenotype
 
             subsumer_does_match = self._encoding.does_phenotype_match(
                 subsumer, obs)
@@ -108,22 +106,37 @@ class LSHPartitioning:
 
             if subsumer_does_match:
 
-                if partition.size == 1:
-                    # don't need to check the sole member of the partition
+                if cell.size == 1:
+                    # don't need to check the sole member of the cell
                     # since it is identical to the subsumer
 
                     sparse_phenotype_matching_map[subsumer] = True
 
                 else:
-                    # otherwise, need to check all members of the partition
+                    # otherwise, need to check all members of the cell
 
                     sparse_phenotype_matching_map.update(
-                        partition.gen_phenotype_matching_map(
-                            self._encoding, obs))
+                        cell.gen_phenotype_matching_map(self._encoding, obs))
 
-                    num_matching_ops_done += partition.size
+                    num_matching_ops_done += cell.size
 
         return (sparse_phenotype_matching_map, num_matching_ops_done)
+
+    def gen_partial_matching_trace(self, obs):
+
+        # always need to match the subsumer for all cells
+        num_matching_ops_done = len(self._lsh_key_cell_map)
+
+        for cell in self._lsh_key_cell_map.values():
+
+            # if subsumer not equal to sole member of cell and it
+            # matches, would also need to match all members of the cell
+            if (cell.size > 1) and self._encoding.does_phenotype_match(
+                    cell.subsumer_phenotype, obs):
+
+                num_matching_ops_done += cell.size
+
+        return num_matching_ops_done
 
     def try_add_phenotype(self, phenotype):
         try:
@@ -142,12 +155,11 @@ class LSHPartitioning:
         lsh_key = self._lsh.hash(self._encoding.gen_phenotype_vec(addee.elems))
         self._phenotype_lsh_key_map[addee] = lsh_key
 
-        # try to add to existing partition, else make new partition
+        # try to add to existing cell, else make new cell
         try:
-            (self._lsh_key_partition_map[lsh_key]).add(addee, self._encoding)
+            (self._lsh_key_cell_map[lsh_key]).add(addee, self._encoding)
         except KeyError:
-            self._lsh_key_partition_map[lsh_key] = \
-                Partition.from_single_phenotype(addee)
+            self._lsh_key_cell_map[lsh_key] = Cell.from_single_phenotype(addee)
 
     def try_remove_phenotype(self, phenotype):
         count = self._phenotype_count_map[phenotype]
@@ -166,17 +178,17 @@ class LSHPartitioning:
         lsh_key = self._phenotype_lsh_key_map[removee]
         del self._phenotype_lsh_key_map[removee]
 
-        partition = self._lsh_key_partition_map[lsh_key]
+        cell = self._lsh_key_cell_map[lsh_key]
 
-        if partition.size == 1:
-            # delete the partition entirely since removing removee will cause
-            # size to be zero
-            del self._lsh_key_partition_map[lsh_key]
+        if cell.size == 1:
+            # delete the cell entirely since removing removee will cause
+            # its size to be zero
+            del self._lsh_key_cell_map[lsh_key]
         else:
-            partition.remove(removee, self._encoding)
+            cell.remove(removee, self._encoding)
 
 
-class Partition:
+class Cell:
     def __init__(self, phenotype_set, encoding=None, subsumer_phenotype=None):
 
         assert (encoding is None and subsumer_phenotype is not None) \
@@ -247,7 +259,7 @@ class Partition:
 
         if self._num_phenotypes == 1:
             # shrink subsumer to be equal to the (now) sole member of the
-            # partition
+            # cell
             self._subsumer_phenotype = (tuple(self._phenotype_set))[0]
 
         elif self._num_phenotypes > 1:

@@ -2,7 +2,7 @@ import abc
 import math
 
 from .hyperparams import get_hyperparam as get_hp
-from .partitioning import LSHPartitioning
+from .partition import SubsumptionPartition
 
 
 class PopulationABC(metaclass=abc.ABCMeta):
@@ -104,7 +104,7 @@ class FastMatchingPopulation(PopulationABC):
         self._num_micros = vanilla_pop._num_micros
         self._ops_history = vanilla_pop._ops_history
 
-        self._index = LSHPartitioning(
+        self._index = SubsumptionPartition(
             encoding=encoding,
             lsh=lsh,
             phenotypes=[clfr.condition.phenotype for clfr in self._clfrs])
@@ -145,3 +145,6 @@ class FastMatchingPopulation(PopulationABC):
         ]
 
         return (trace, num_matching_ops_done)
+
+    def gen_partial_matching_trace(self, obs):
+        return self._index.gen_partial_matching_trace(obs)
