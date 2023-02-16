@@ -2,7 +2,7 @@ import abc
 import math
 
 from .hyperparams import get_hyperparam as get_hp
-from .partition import SubsumptionPartition
+from .index import PhenotypeIndex
 
 
 class PopulationABC(metaclass=abc.ABCMeta):
@@ -94,7 +94,7 @@ class VanillaPopulation(PopulationABC):
 
 class FastMatchingPopulation(PopulationABC):
     """Population that uses an index to perform fast matching."""
-    def __init__(self, vanilla_pop, encoding, lsh):
+    def __init__(self, vanilla_pop, encoding, rasterizer):
         """FastMatchingPopulation needs to be inited from existing
         VanillaPopulation."""
 
@@ -104,9 +104,9 @@ class FastMatchingPopulation(PopulationABC):
         self._num_micros = vanilla_pop._num_micros
         self._ops_history = vanilla_pop._ops_history
 
-        self._index = SubsumptionPartition(
+        self._index = PhenotypeIndex(
             encoding=encoding,
-            lsh=lsh,
+            rasterizer=rasterizer,
             phenotypes=[clfr.condition.phenotype for clfr in self._clfrs])
 
     def add_new(self, clfr, op, time_step=None):

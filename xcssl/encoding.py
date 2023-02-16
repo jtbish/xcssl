@@ -83,6 +83,10 @@ class EncodingABC(metaclass=abc.ABCMeta):
     def _make_lsh(self, num_dims):
         raise NotImplementedError
 
+    @abc.abstractmethod
+    def calc_phenotype_bounding_intervals_on_dims(self, phenotype, dim_idxs):
+        raise NotImplementedError
+
 
 class TernaryEncoding(EncodingABC):
     _COND_CLS = TernaryCondition
@@ -233,6 +237,27 @@ class TernaryEncoding(EncodingABC):
         num_projs = get_hp("lsh_num_projs")
         seed = get_hp("seed")
         return HammingLSH(num_dims, num_projs, seed)
+
+    def calc_phenotype_bounding_intervals_on_dims(self, phenotype, dim_idxs):
+        bounding_intervals = []
+
+        for dim_idx in dim_idxs:
+
+            phenotype_elem = phenotype[dim_idx]
+
+            if phenotype_elem == 0:
+                bounding_intervals.append([0, 0])
+
+            elif phenotype_elem == 1:
+                bounding_intervals.append([1, 1])
+
+            elif phenotype_elem == TERNARY_HASH:
+                bounding_intervals.append([0, 1])
+
+            else:
+                assert False
+
+        return bounding_intervals
 
 
 class UnorderedBoundEncodingABC(EncodingABC, metaclass=abc.ABCMeta):
