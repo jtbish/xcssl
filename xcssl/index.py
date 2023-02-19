@@ -1,3 +1,6 @@
+import numpy as np
+
+
 class PhenotypeIndex:
     def __init__(self, encoding, rasterizer, phenotypes):
         self._encoding = encoding
@@ -25,19 +28,19 @@ class PhenotypeIndex:
     def _gen_maps(self, encoding, rasterizer, phenotype_set):
 
         phenotype_grid_cells_map = {}
-        grid_cell_phenotypes_map = [
-            set() for _ in range(rasterizer.num_grid_cells)
-        ]
+        grid_cell_phenotypes_map = np.empty(shape=rasterizer.num_grid_cells,
+                                            dtype="object")
+        for idx in range(0, rasterizer.num_grid_cells):
+            grid_cell_phenotypes_map[idx] = set()
 
         for phenotype in phenotype_set:
 
             grid_cells_covered = rasterizer.rasterize_phenotype(
                 encoding, phenotype)
+            phenotype_grid_cells_map[phenotype] = grid_cells_covered
 
             for grid_cell in grid_cells_covered:
                 (grid_cell_phenotypes_map[grid_cell]).add(phenotype)
-
-            phenotype_grid_cells_map[phenotype] = grid_cells_covered
 
         return (phenotype_grid_cells_map, grid_cell_phenotypes_map)
 
@@ -89,7 +92,12 @@ class PhenotypeIndex:
             self._add_phenotype(phenotype)
 
     def _add_phenotype(self, addee):
-        raise NotImplementedError
+        grid_cells_covered = self._rasterizer.rasterize_phenotype(
+            self._encoding, addee)
+        self._phenotype_grid_cells_map[addee] = grid_cells_covered
+
+        for grid_cell in grid_cells_covered:
+            (self._grid_cell_phenotypes_map[grid_cell]).add(addee)
 
     def try_remove_phenotype(self, phenotype):
         count = self._phenotype_count_map[phenotype]
@@ -105,4 +113,9 @@ class PhenotypeIndex:
             self._phenotype_count_map[phenotype] = count
 
     def _remove_phenotype(self, removee):
-        raise NotImplementedError
+        grid_cells_covered = self._phenotype_grid_cells_map[removee]
+
+        for grid_cell in grid_cells_covered:
+            (self._grid_cell_phenotypes_map[grid_cell]).remove(removee)
+
+        del self._phenotype_grid_cells_map[removee]

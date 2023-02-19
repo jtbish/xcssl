@@ -1,7 +1,5 @@
 import abc
-import math
 
-from .hyperparams import get_hyperparam as get_hp
 from .index import PhenotypeIndex
 
 

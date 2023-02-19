@@ -16,6 +16,7 @@ from .hyperparams import get_hyperparam as get_hp
 from .hyperparams import register_hyperparams
 from .param_update import update_action_set
 from .population import FastMatchingPopulation, VanillaPopulation
+from .rasterizer import make_rasterizer
 from .rng import seed_rng
 from .util import calc_num_micros
 
@@ -246,9 +247,9 @@ class FastMatchingXCS(XCSABC):
                              f"{self._time_step}")
                 self._match_mode = MatchingModes.fast
 
-                lsh = self._encoding.make_lsh()
+                rasterizer = make_rasterizer(self._encoding.obs_space)
 
                 # replace vanilla pop with FM pop
                 self._pop = FastMatchingPopulation(vanilla_pop=self._pop,
                                                    encoding=self._encoding,
-                                                   lsh=lsh)
+                                                   rasterizer=rasterizer)

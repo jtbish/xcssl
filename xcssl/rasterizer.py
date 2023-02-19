@@ -4,25 +4,53 @@ import itertools
 import numpy as np
 
 from .dimension import IntegerDimension, RealDimension
+from .hyperparams import get_hyperparam as get_hp
 from .obs_space import IntegerObsSpace, RealObsSpace
 
 _MIN_NUM_GRID_DIMS = 1
 
 
+def make_rasterizer(obs_space):
+
+    if isinstance(obs_space, IntegerObsSpace):
+        return IntegerObsSpaceRasterizer(
+            obs_space,
+            num_grid_dims=get_hp("cmap_num_grid_dims"),
+            seed=get_hp("seed"))
+
+    elif isinstance(obs_space, RealObsSpace):
+        raise NotImplementedError
+
+    else:
+        assert False
+
+
 class ObsSpaceRasterizerABC(metaclass=abc.ABCMeta):
-    def __init__(self, obs_space, num_grid_dims, seed):
+    def __init__(self, obs_space, num_grid_dims, num_bins_per_grid_dim, seed):
         self._obs_space = obs_space
         self._d = len(self._obs_space)
 
         assert _MIN_NUM_GRID_DIMS <= num_grid_dims <= self._d
         self._k = num_grid_dims
+        self._b = num_bins_per_grid_dim
+
+        self._b_pow_vec = self._gen_b_pow_vec(self._b, self._k)
+
+        self._num_grid_cells = (self._b**self._k)
 
         self._grid_dim_idxs = self._init_grid_dim_idxs(self._d, self._k, seed)
 
-        self._num_bins_each_dim = self._calc_num_bins_each_dim(
-            self._obs_space, self._grid_dim_idxs)
+    def _gen_b_pow_vec(self, b, k):
+        b_pow = 1
+        res = [b_pow]
 
-        self._num_grid_cells = np.product(self._num_bins_each_dim)
+        for _ in range(k - 1):
+            b_pow *= b
+            res.append(b_pow)
+
+        assert len(res) == k
+
+        return tuple(reversed(res))
 
     def _init_grid_dim_idxs(self, d, k, seed):
         rng = np.random.RandomState(int(seed))
@@ -31,10 +59,6 @@ class ObsSpaceRasterizerABC(metaclass=abc.ABCMeta):
         grid_dim_idxs = tuple(sorted(grid_dim_idxs))
 
         return grid_dim_idxs
-
-    @abc.abstractmethod
-    def _calc_num_bins_each_dim(self, obs_space, grid_dim_idxs):
-        raise NotImplementedError
 
     def rasterize_phenotype(self, encoding, phenotype):
 
@@ -45,8 +69,6 @@ class ObsSpaceRasterizerABC(metaclass=abc.ABCMeta):
         grid_cell_bins_covered_each_dim = \
             self._rasterize_phenotype_bounding_intervals_each_dim(
                 phenotype_bounding_intervals)
-
-        assert len(grid_cell_bins_covered_each_dim) == self._k
 
         grid_cells_covered = []
         for grid_cell_bin_combo in itertools.product(
@@ -71,25 +93,8 @@ class ObsSpaceRasterizerABC(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
     def _convert_grid_cell_bin_combo_to_dec(self, grid_cell_bin_combo):
-        # thanks: https://math.stackexchange.com/questions/2008367/how-to-convert-an-index-into-n-coordinates
-        # (column-major i.e. same as nested for loops)
-
-        N = len(grid_cell_bin_combo)
-
-        res = 0
-
-        for n in range(1, N + 1):
-            i_n = grid_cell_bin_combo[n - 1]
-
-            prod = 1
-
-            for m in range(n + 1, N + 1):
-                s_m = self._num_bins_each_dim[m - 1]
-                prod *= s_m
-
-            res += (i_n * prod)
-
-        return res
+        return sum(e * b_pow
+                   for (e, b_pow) in zip(grid_cell_bin_combo, self._b_pow_vec))
 
     @property
     def num_grid_cells(self):
@@ -99,17 +104,13 @@ class ObsSpaceRasterizerABC(metaclass=abc.ABCMeta):
 class IntegerObsSpaceRasterizer(ObsSpaceRasterizerABC):
     def __init__(self, obs_space, num_grid_dims, seed):
         assert isinstance(obs_space, IntegerObsSpace)
-        super().__init__(obs_space, num_grid_dims, seed)
 
-    def _calc_num_bins_each_dim(self, obs_space, grid_dim_idxs):
-        res = []
+        dim_spans = [dim.span for dim in obs_space]
+        # enforce all dims must have the same span
+        assert len(set(dim_spans)) == 1
+        num_bins_per_grid_dim = dim_spans[0]
 
-        for dim_idx in grid_dim_idxs:
-            dim = obs_space[dim_idx]
-            assert isinstance(dim, IntegerDimension)
-            res.append(dim.span)
-
-        return res
+        super().__init__(obs_space, num_grid_dims, num_bins_per_grid_dim, seed)
 
     def _rasterize_phenotype_bounding_intervals_each_dim(
             self, phenotype_bounding_intervals):
@@ -120,8 +121,8 @@ class IntegerObsSpaceRasterizer(ObsSpaceRasterizerABC):
             # go up in +1 increments from lo to hi, since integer space
             lo = bounding_interval[0]
             hi = bounding_interval[1]
-            assert lo <= hi
-            grid_cell_bins_covered_each_dim.append(list(range(lo, hi + 1, 1)))
+            grid_cell_bins_covered_each_dim.append(
+                tuple(range(lo, (hi + 1), 1)))
 
         return grid_cell_bins_covered_each_dim
 

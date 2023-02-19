@@ -90,6 +90,11 @@ class EncodingABC(metaclass=abc.ABCMeta):
 
 class TernaryEncoding(EncodingABC):
     _COND_CLS = TernaryCondition
+    _PHENOTYPE_ELEM_BOUNDING_INTERVALS = {
+        0: (0, 0),
+        1: (1, 1),
+        TERNARY_HASH: (0, 1)
+    }
 
     def __init__(self, obs_space):
         assert isinstance(obs_space, IntegerObsSpace)
@@ -244,18 +249,8 @@ class TernaryEncoding(EncodingABC):
         for dim_idx in dim_idxs:
 
             phenotype_elem = phenotype[dim_idx]
-
-            if phenotype_elem == 0:
-                bounding_intervals.append([0, 0])
-
-            elif phenotype_elem == 1:
-                bounding_intervals.append([1, 1])
-
-            elif phenotype_elem == TERNARY_HASH:
-                bounding_intervals.append([0, 1])
-
-            else:
-                assert False
+            bounding_intervals.append(
+                self._PHENOTYPE_ELEM_BOUNDING_INTERVALS[phenotype_elem])
 
         return bounding_intervals
 
