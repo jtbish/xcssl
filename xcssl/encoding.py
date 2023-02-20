@@ -3,7 +3,6 @@ import abc
 from .condition import TERNARY_HASH, IntervalCondition, TernaryCondition
 from .hyperparams import get_hyperparam as get_hp
 from .interval import IntegerInterval, RealInterval
-from .lsh import EuclideanLSH, HammingLSH
 from .obs_space import IntegerObsSpace, RealObsSpace
 from .phenotype import Phenotype
 from .rng import get_rng
@@ -28,10 +27,6 @@ class EncodingABC(metaclass=abc.ABCMeta):
     def make_phenotype(self, phenotype_elems):
         return Phenotype(phenotype_elems)
 
-    def make_lsh(self):
-        num_dims = self.calc_num_phenotype_vec_dims()
-        return self._make_lsh(num_dims)
-
     @abc.abstractmethod
     def gen_covering_condition(self, obs):
         raise NotImplementedError
@@ -54,33 +49,8 @@ class EncodingABC(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def calc_num_phenotype_vec_dims(self):
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def gen_phenotype_vec(self, phenotype_elems):
-        """Generate vectorised repr of phenotype."""
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def distance_between(self, phenotype_vec_a, phenotype_vec_b):
-        raise NotImplementedError
-
-    @abc.abstractmethod
     def does_subsume(self, phenotype_a, phenotype_b):
         """Does phenotype_a subsume phenotype_b?"""
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def make_subsumer_phenotype(self, phenotypes):
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def expand_subsumer_phenotype(self, subsumer_phenotype, new_phenotype):
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def _make_lsh(self, num_dims):
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -119,7 +89,7 @@ class TernaryEncoding(EncodingABC):
         return self.make_condition(cond_alleles)
 
     def _decode(self, cond_alleles):
-        # genotype == phenotype
+        # phenotype == genotype
         return tuple(cond_alleles)
 
     def calc_phenotype_generality(self, phenotype):
@@ -145,103 +115,11 @@ class TernaryEncoding(EncodingABC):
                 return False
         return True
 
-    def calc_num_phenotype_vec_dims(self):
-        return (2 * len(self._obs_space))
-
-    def gen_phenotype_vec(self, phenotype_elems):
-        vec = []
-
-        for elem in phenotype_elems:
-            # one-hot encoding of elem vals, hash counts as both 0 and 1
-            if elem == 0:
-                subvec = [1, 0]
-            elif elem == 1:
-                subvec = [0, 1]
-            elif elem == TERNARY_HASH:
-                subvec = [1, 1]
-            else:
-                assert False
-
-            vec.extend(subvec)
-
-        return tuple(vec)
-
-    def distance_between(self, phenotype_vec_a, phenotype_vec_b):
-        """Hamming dist."""
-        return sum(a_elem != b_elem
-                   for (a_elem,
-                        b_elem) in zip(phenotype_vec_a, phenotype_vec_b))
-
     def does_subsume(self, phenotype_a, phenotype_b):
         for (a_elem, b_elem) in zip(phenotype_a, phenotype_b):
             if (a_elem != TERNARY_HASH and a_elem != b_elem):
                 return False
         return True
-
-    def make_subsumer_phenotype(self, phenotypes):
-        subsumer_elems = []
-
-        for dim_idx in range(0, self._num_obs_dims):
-
-            dim_elems = [phenotype[dim_idx] for phenotype in phenotypes]
-
-            zero_count = 0
-            one_count = 0
-            hash_count = 0
-
-            for elem in dim_elems:
-                if elem == 0:
-                    zero_count += 1
-                elif elem == 1:
-                    one_count += 1
-                elif elem == TERNARY_HASH:
-                    hash_count += 1
-                else:
-                    assert False
-
-            if hash_count > 0:
-                # at least one hash, so subsumer needs to hash
-                subsumer_elems.append(TERNARY_HASH)
-            else:
-                # no hashes
-                if one_count == 0:
-                    # all zeroes
-                    subsumer_elems.append(0)
-                elif zero_count == 0:
-                    # all ones
-                    subsumer_elems.append(1)
-                else:
-                    # some mixture of zeroes and ones, so subsumer needs hash
-                    subsumer_elems.append(TERNARY_HASH)
-
-        return self.make_phenotype(subsumer_elems)
-
-    def expand_subsumer_phenotype(self, subsumer_phenotype, new_phenotype):
-
-        new_subsumer_elems = []
-
-        for (s_elem, n_elem) in zip(subsumer_phenotype, new_phenotype):
-
-            if s_elem != TERNARY_HASH:
-                # s_elem either 0 or 1
-
-                if s_elem != n_elem:
-                    # 0/1 or 1/0, either way can only subsume with hash
-                    new_subsumer_elems.append(TERNARY_HASH)
-                else:
-                    # 0/0 or 1/1, either way subsume with current val
-                    new_subsumer_elems.append(n_elem)
-
-            else:
-
-                new_subsumer_elems.append(TERNARY_HASH)
-
-        return self.make_phenotype(new_subsumer_elems)
-
-    def _make_lsh(self, num_dims):
-        num_projs = get_hp("lsh_num_projs")
-        seed = get_hp("seed")
-        return HammingLSH(num_dims, num_projs, seed)
 
     def calc_phenotype_bounding_intervals_on_dims(self, phenotype, dim_idxs):
         bounding_intervals = []
@@ -326,23 +204,13 @@ class UnorderedBoundEncodingABC(EncodingABC, metaclass=abc.ABCMeta):
                 return False
         return True
 
-    def calc_num_phenotype_vec_dims(self):
-        raise NotImplementedError
-
-    def gen_phenotype_vec(self, phenotype_elems):
-        raise NotImplementedError
-
-    def distance_between(self, phenotype_vec_a, phenotype_vec_b):
-        raise NotImplementedError
-
     def does_subsume(self, phenotype_a, phenotype_b):
         for (a_interval, b_interval) in zip(phenotype_a, phenotype_b):
             if not a_interval.does_subsume(b_interval):
                 return False
         return True
 
-    @abc.abstractmethod
-    def make_subsumer_phenotype(self, phenotypes):
+    def calc_phenotype_bounding_intervals_on_dims(self, phenotype, dim_idxs):
         raise NotImplementedError
 
 
@@ -378,9 +246,6 @@ class IntegerUnorderedBoundEncoding(UnorderedBoundEncodingABC):
     def _gen_mutation_noise(self, dim=None):
         # integer ~ [1, m_0]
         return get_rng().randint(low=1, high=(get_hp("m_nought") + 1))
-
-    def _make_lsh(self, num_dims):
-        raise NotImplementedError
 
 
 class RealUnorderedBoundEncoding(UnorderedBoundEncodingABC):
@@ -420,6 +285,3 @@ class RealUnorderedBoundEncoding(UnorderedBoundEncodingABC):
         assert 0.0 < m_nought <= 1.0
         mut_high = (m_nought * dim.span)
         return get_rng().uniform(low=0, high=mut_high)
-
-    def _make_lsh(self, num_dims):
-        raise NotImplementedError

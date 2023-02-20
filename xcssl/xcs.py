@@ -16,7 +16,6 @@ from .hyperparams import get_hyperparam as get_hp
 from .hyperparams import register_hyperparams
 from .param_update import update_action_set
 from .population import FastMatchingPopulation, VanillaPopulation
-from .rasterizer import make_rasterizer
 from .rng import seed_rng
 from .util import calc_num_micros
 
@@ -53,6 +52,9 @@ class XCSABC(metaclass=abc.ABCMeta):
         # always starts out with vanilla pop, switches later if using FM
         self._pop = VanillaPopulation()
 
+        # always cover all actions
+        self._theta_mna = len(self._env.action_space)
+
     @property
     def pop(self):
         return self._pop
@@ -85,7 +87,7 @@ class XCSABC(metaclass=abc.ABCMeta):
         prediction_arr = OrderedDict(
             {action: None
              for action in self._env.action_space})
-        actions_reprd_in_m = set([clfr.action for clfr in match_set])
+        actions_reprd_in_m = set(clfr.action for clfr in match_set)
         for a in actions_reprd_in_m:
             # to bootstap sum below
             prediction_arr[a] = 0
@@ -124,8 +126,8 @@ class XCSABC(metaclass=abc.ABCMeta):
         if self._action_selection_mode == ActionSelectionModes.explore:
 
             avg_time_stamp_in_as = sum(
-                [clfr.time_stamp * clfr.numerosity
-                 for clfr in action_set]) / calc_num_micros(action_set)
+                clfr.time_stamp * clfr.numerosity
+                for clfr in action_set) / calc_num_micros(action_set)
 
             should_apply_ga = ((time_step - avg_time_stamp_in_as) >
                                get_hp("theta_ga"))
@@ -171,10 +173,8 @@ class VanillaXCS(XCSABC):
 
     def _gen_match_set_and_cover(self, obs):
         match_set = self._gen_match_set(obs)
-        # always cover all actions
-        theta_mna = len(self._env.action_space)
 
-        while (calc_num_unique_actions(match_set) < theta_mna):
+        while (calc_num_unique_actions(match_set) < self._theta_mna):
             clfr = gen_covering_classifier(obs, self._encoding, match_set,
                                            self._env.action_space,
                                            self._time_step)
@@ -218,10 +218,8 @@ class FastMatchingXCS(XCSABC):
 
     def _gen_match_set_and_cover(self, obs):
         match_set = self._gen_match_set(obs)
-        # always cover all actions
-        theta_mna = len(self._env.action_space)
 
-        while (calc_num_unique_actions(match_set) < theta_mna):
+        while (calc_num_unique_actions(match_set) < self._theta_mna):
             clfr = gen_covering_classifier(obs, self._encoding, match_set,
                                            self._env.action_space,
                                            self._time_step)
@@ -239,17 +237,26 @@ class FastMatchingXCS(XCSABC):
             time_steps_since_last_cover = (self._time_step -
                                            self._last_cover_time_step)
 
-            should_switch_mode = (time_steps_since_last_cover >
-                                  get_hp("theta_fm"))
+            should_switch_mode = (
+                time_steps_since_last_cover == get_hp("theta_fm"))
+
             if should_switch_mode:
 
                 logging.info(f"Switching to fast matching @ time step "
                              f"{self._time_step}")
                 self._match_mode = MatchingModes.fast
 
-                rasterizer = make_rasterizer(self._encoding.obs_space)
+                seed = get_hp("seed")
+                rngd = get_hp("cmap_num_grid_dims")
+                try:
+                    rnbpgd = get_hp("cmap_num_bins_per_grid_dim")
+                except KeyError:
+                    rnbpgd = None
 
                 # replace vanilla pop with FM pop
-                self._pop = FastMatchingPopulation(vanilla_pop=self._pop,
-                                                   encoding=self._encoding,
-                                                   rasterizer=rasterizer)
+                self._pop = FastMatchingPopulation(
+                    vanilla_pop=self._pop,
+                    encoding=self._encoding,
+                    seed=seed,
+                    rasterizer_num_grid_dims=rngd,
+                    rasterizer_num_bins_per_grid_dim=rnbpgd)

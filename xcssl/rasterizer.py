@@ -4,25 +4,9 @@ import itertools
 import numpy as np
 
 from .dimension import IntegerDimension, RealDimension
-from .hyperparams import get_hyperparam as get_hp
 from .obs_space import IntegerObsSpace, RealObsSpace
 
 _MIN_NUM_GRID_DIMS = 1
-
-
-def make_rasterizer(obs_space):
-
-    if isinstance(obs_space, IntegerObsSpace):
-        return IntegerObsSpaceRasterizer(
-            obs_space,
-            num_grid_dims=get_hp("cmap_num_grid_dims"),
-            seed=get_hp("seed"))
-
-    elif isinstance(obs_space, RealObsSpace):
-        raise NotImplementedError
-
-    else:
-        assert False
 
 
 class ObsSpaceRasterizerABC(metaclass=abc.ABCMeta):
@@ -55,6 +39,7 @@ class ObsSpaceRasterizerABC(metaclass=abc.ABCMeta):
     def _init_grid_dim_idxs(self, d, k, seed):
         rng = np.random.RandomState(int(seed))
 
+        # d C k
         grid_dim_idxs = rng.choice(a=range(d), size=k, replace=False)
         grid_dim_idxs = tuple(sorted(grid_dim_idxs))
 

@@ -85,7 +85,8 @@ class Classifier:
         assert val >= _EXPERIENCE_MIN
         self._experience = val
         self._deletion_has_sufficient_exp = \
-            self._calc_deletion_has_sufficient_exp(self._experience)
+            (self._deletion_has_sufficient_exp or
+                self._calc_deletion_has_sufficient_exp(self._experience))
 
     @property
     def time_stamp(self):

@@ -19,7 +19,7 @@ def choose_action_selection_mode():
 def random_action_selection(prediction_arr):
     # random action from non-null actions reprd in pred arr
     prediction_arr = filter_null_prediction_arr_entries(prediction_arr)
-    return get_rng().choice(list(prediction_arr.keys()))
+    return get_rng().choice(tuple(prediction_arr.keys()))
 
 
 def greedy_action_selection(prediction_arr):

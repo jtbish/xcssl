@@ -1,6 +1,8 @@
 import abc
 
 from .index import PhenotypeIndex
+from .obs_space import IntegerObsSpace, RealObsSpace
+from .rasterizer import IntegerObsSpaceRasterizer, RealObsSpaceRasterizer
 
 
 class PopulationABC(metaclass=abc.ABCMeta):
@@ -92,7 +94,12 @@ class VanillaPopulation(PopulationABC):
 
 class FastMatchingPopulation(PopulationABC):
     """Population that uses an index to perform fast matching."""
-    def __init__(self, vanilla_pop, encoding, rasterizer):
+    def __init__(self,
+                 vanilla_pop,
+                 encoding,
+                 seed,
+                 rasterizer_num_grid_dims,
+                 rasterizer_num_bins_per_grid_dim=None):
         """FastMatchingPopulation needs to be inited from existing
         VanillaPopulation."""
 
@@ -101,6 +108,20 @@ class FastMatchingPopulation(PopulationABC):
         self._clfrs = vanilla_pop._clfrs
         self._num_micros = vanilla_pop._num_micros
         self._ops_history = vanilla_pop._ops_history
+
+        obs_space = encoding.obs_space
+
+        if isinstance(obs_space, IntegerObsSpace):
+            assert rasterizer_num_bins_per_grid_dim is None
+            rasterizer = IntegerObsSpaceRasterizer(
+                obs_space, num_grid_dims=rasterizer_num_grid_dims, seed=seed)
+
+        elif isinstance(obs_space, RealObsSpace):
+            # TODO
+            assert rasterizer_num_bins_per_grid_dim is not None
+
+        else:
+            assert False
 
         self._index = PhenotypeIndex(
             encoding=encoding,
