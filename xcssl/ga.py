@@ -109,7 +109,7 @@ def _mutate_condition(child, encoding, obs):
 def _mutate_action(child, action_space):
     should_mut_action = get_rng().random() < get_hp("mu")
     if should_mut_action:
-        other_actions = list(set(action_space) - {child.action})
+        other_actions = tuple(set(action_space) - {child.action})
         mut_action = get_rng().choice(other_actions)
         child.action = mut_action
 

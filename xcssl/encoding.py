@@ -235,8 +235,8 @@ class IntegerUnorderedBoundEncoding(UnorderedBoundEncodingABC):
         # condition generality calc as in
         # Wilson '00 Mining Oblique Data with XCS
         cond_intervals = phenotype.elems
-        numer = sum([interval.span for interval in cond_intervals])
-        denom = sum([dim.span for dim in self._obs_space])
+        numer = sum(interval.span for interval in cond_intervals)
+        denom = sum(dim.span for dim in self._obs_space)
         generality = numer / denom
         # b.c. of +1s in numer, gen cannot be 0
         assert self._GENERALITY_LB_EXCL < generality <= \
@@ -270,8 +270,8 @@ class RealUnorderedBoundEncoding(UnorderedBoundEncodingABC):
 
     def calc_phenotype_generality(self, phenotype):
         cond_intervals = phenotype.elems
-        numer = sum([interval.span for interval in cond_intervals])
-        denom = sum([dim for dim in self._obs_space])
+        numer = sum(interval.span for interval in cond_intervals)
+        denom = sum(dim for dim in self._obs_space)
         generality = numer / denom
         # gen could be 0 if all intervals in numer collapse to single point
         assert self._GENERALITY_LB_INCL <= generality <= \
