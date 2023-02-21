@@ -6,7 +6,6 @@ class IntervalABC(metaclass=abc.ABCMeta):
         assert lower <= upper
         self._lower = lower
         self._upper = upper
-        self._span = self._calc_span(self._lower, self._upper)
 
     @property
     def lower(self):
@@ -16,12 +15,8 @@ class IntervalABC(metaclass=abc.ABCMeta):
     def upper(self):
         return self._upper
 
-    @property
-    def span(self):
-        return self._span
-
     @abc.abstractmethod
-    def _calc_span(self, lower, upper):
+    def calc_span(self):
         raise NotImplementedError
 
     def contains_val(self, val):
@@ -39,10 +34,10 @@ class IntervalABC(metaclass=abc.ABCMeta):
 
 
 class IntegerInterval(IntervalABC):
-    def _calc_span(self, lower, upper):
-        return upper - lower + 1
+    def calc_span(self):
+        return self._upper - self._lower + 1
 
 
 class RealInterval(IntervalABC):
-    def _calc_span(self, lower, upper):
-        return upper - lower
+    def calc_span(self):
+        return self._upper - self._lower

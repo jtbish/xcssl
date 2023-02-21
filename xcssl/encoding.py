@@ -1,5 +1,6 @@
 import abc
 
+from .aabb import AxisAlignedBoundingBox
 from .condition import TERNARY_HASH, IntervalCondition, TernaryCondition
 from .hyperparams import get_hyperparam as get_hp
 from .interval import IntegerInterval, RealInterval
@@ -54,7 +55,7 @@ class EncodingABC(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def calc_phenotype_bounding_intervals_on_dims(self, phenotype, dim_idxs):
+    def make_phenotype_aabb(self, phenotype):
         raise NotImplementedError
 
 
@@ -121,16 +122,14 @@ class TernaryEncoding(EncodingABC):
                 return False
         return True
 
-    def calc_phenotype_bounding_intervals_on_dims(self, phenotype, dim_idxs):
-        bounding_intervals = []
+    def make_phenotype_aabb(self, phenotype):
+        intervals = []
 
-        for dim_idx in dim_idxs:
+        for elem in phenotype:
+            (lower, upper) = self._PHENOTYPE_ELEM_BOUNDING_INTERVALS[elem]
+            intervals.append(IntegerInterval(lower, upper))
 
-            phenotype_elem = phenotype[dim_idx]
-            bounding_intervals.append(
-                self._PHENOTYPE_ELEM_BOUNDING_INTERVALS[phenotype_elem])
-
-        return bounding_intervals
+        return AxisAlignedBoundingBox(intervals)
 
 
 class UnorderedBoundEncodingABC(EncodingABC, metaclass=abc.ABCMeta):
@@ -235,7 +234,7 @@ class IntegerUnorderedBoundEncoding(UnorderedBoundEncodingABC):
         # condition generality calc as in
         # Wilson '00 Mining Oblique Data with XCS
         cond_intervals = phenotype.elems
-        numer = sum(interval.span for interval in cond_intervals)
+        numer = sum(interval.calc_span() for interval in cond_intervals)
         denom = sum(dim.span for dim in self._obs_space)
         generality = numer / denom
         # b.c. of +1s in numer, gen cannot be 0
@@ -270,7 +269,7 @@ class RealUnorderedBoundEncoding(UnorderedBoundEncodingABC):
 
     def calc_phenotype_generality(self, phenotype):
         cond_intervals = phenotype.elems
-        numer = sum(interval.span for interval in cond_intervals)
+        numer = sum(interval.calc_span() for interval in cond_intervals)
         denom = sum(dim for dim in self._obs_space)
         generality = numer / denom
         # gen could be 0 if all intervals in numer collapse to single point

@@ -1,6 +1,6 @@
 import abc
 
-from .index import PhenotypeIndex
+from .index import CoverageMap
 from .obs_space import IntegerObsSpace, RealObsSpace
 from .rasterizer import IntegerObsSpaceRasterizer, RealObsSpaceRasterizer
 
@@ -123,7 +123,7 @@ class FastMatchingPopulation(PopulationABC):
         else:
             assert False
 
-        self._index = PhenotypeIndex(
+        self._index = CoverageMap(
             encoding=encoding,
             rasterizer=rasterizer,
             phenotypes=[clfr.condition.phenotype for clfr in self._clfrs])
