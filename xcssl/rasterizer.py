@@ -9,8 +9,22 @@ from .obs_space import IntegerObsSpace, RealObsSpace
 _MIN_NUM_GRID_DIMS = 1
 
 
+def make_rasterizer(obs_space, rasterizer_kwargs):
+
+    if isinstance(obs_space, IntegerObsSpace):
+        cls = IntegerObsSpaceRasterizer
+
+    elif isinstance(obs_space, RealObsSpace):
+        cls = RealObsSpaceRasterizer
+
+    else:
+        assert False
+
+    return cls(obs_space, **rasterizer_kwargs)
+
+
 class ObsSpaceRasterizerABC(metaclass=abc.ABCMeta):
-    def __init__(self, obs_space, num_grid_dims, num_bins_per_grid_dim, seed):
+    def __init__(self, obs_space, seed, num_grid_dims, num_bins_per_grid_dim):
         self._obs_space = obs_space
         self._d = len(self._obs_space)
 
@@ -79,8 +93,8 @@ class ObsSpaceRasterizerABC(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
     def rasterize_obs(self, obs):
-        grid_cell_bin_combo = self._rasterize_obs_on_grid_dims(obs)
-        return self._convert_grid_cell_bin_combo_to_dec(grid_cell_bin_combo)
+        return self._convert_grid_cell_bin_combo_to_dec(
+            self._rasterize_obs_on_grid_dims(obs))
 
     @abc.abstractmethod
     def _rasterize_obs_on_grid_dims(self, obs):
@@ -90,39 +104,29 @@ class ObsSpaceRasterizerABC(metaclass=abc.ABCMeta):
         return sum(e * b_pow
                    for (e, b_pow) in zip(grid_cell_bin_combo, self._b_pow_vec))
 
-    def match_idxd_aabb(self, aabb, obs, phenotype, encoding):
-        # this aabb is, at this point, a candidate match
-
-        # check all the
-        # "anti" grid dims.
-        # if any of these do not match, the aabb (and hence
-        # phenotype, since the phenotype is contained by the aabb) could not
-        # possibly match
-
-        for anti_grid_dim_idx in self._anti_grid_dim_idxs:
-            if not (aabb[anti_grid_dim_idx]).contains_val(
-                    obs[anti_grid_dim_idx]):
-                return False
-
-        # if made it to this point,
-        # one of the indexed grid dims might have had partial coverage,
-        # (also one of the anti indexed ones might also have partial
-        # coverage, depending on how the AABB and phenotype relate).
-        # so fully match the phenotype with the encoding
-        return encoding.does_phenotype_match(phenotype, obs)
+    @abc.abstractmethod
+    def match_idxd_aabb(self, aabb, obs):
+        raise NotImplementedError
 
 
 class IntegerObsSpaceRasterizer(ObsSpaceRasterizerABC):
-    def __init__(self, obs_space, num_grid_dims, seed):
+    def __init__(self,
+                 obs_space,
+                 seed,
+                 num_grid_dims,
+                 num_bins_per_grid_dim=None):
+
         assert isinstance(obs_space, IntegerObsSpace)
+        assert num_bins_per_grid_dim is None
 
         dim_spans = [dim.span for dim in obs_space]
-        # enforce all dims must have the same span
+        # enforce all dims must have the same span, and that b is equal to this
+        # common span
         # TODO could relax this
         assert len(set(dim_spans)) == 1
         num_bins_per_grid_dim = dim_spans[0]
 
-        super().__init__(obs_space, num_grid_dims, num_bins_per_grid_dim, seed)
+        super().__init__(obs_space, seed, num_grid_dims, num_bins_per_grid_dim)
 
     def _rasterize_aabb_on_grid_dims(self, aabb):
 
@@ -139,6 +143,9 @@ class IntegerObsSpaceRasterizer(ObsSpaceRasterizerABC):
 
     def _rasterize_obs_on_grid_dims(self, obs):
         return tuple(obs[idx] for idx in self._grid_dim_idxs)
+
+    def match_idxd_aabb(self, aabb, obs):
+        return aabb.contains_obs_given_dims(obs, self._anti_grid_dim_idxs)
 
 
 class RealObsSpaceRasterizer(ObsSpaceRasterizerABC):

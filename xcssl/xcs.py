@@ -247,16 +247,20 @@ class FastMatchingXCS(XCSABC):
                 self._match_mode = MatchingModes.fast
 
                 seed = get_hp("seed")
-                rngd = get_hp("cmap_num_grid_dims")
+                rngd = get_hp("rstr_num_grid_dims")
                 try:
-                    rnbpgd = get_hp("cmap_num_bins_per_grid_dim")
+                    rnbpgd = get_hp("rstr_num_bins_per_grid_dim")
                 except KeyError:
                     rnbpgd = None
+
+                rasterizer_kwargs = {
+                    "seed": seed,
+                    "num_grid_dims": rngd,
+                    "num_bins_per_grid_dim": rnbpgd
+                }
 
                 # replace vanilla pop with FM pop
                 self._pop = FastMatchingPopulation(
                     vanilla_pop=self._pop,
                     encoding=self._encoding,
-                    seed=seed,
-                    rasterizer_num_grid_dims=rngd,
-                    rasterizer_num_bins_per_grid_dim=rnbpgd)
+                    rasterizer_kwargs=rasterizer_kwargs)

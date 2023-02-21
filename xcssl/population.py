@@ -1,8 +1,6 @@
 import abc
 
 from .index import CoverageMap
-from .obs_space import IntegerObsSpace, RealObsSpace
-from .rasterizer import IntegerObsSpaceRasterizer, RealObsSpaceRasterizer
 
 
 class PopulationABC(metaclass=abc.ABCMeta):
@@ -39,10 +37,6 @@ class PopulationABC(metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def gen_match_set(self, obs):
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def gen_matching_trace(self, obs):
         raise NotImplementedError
 
     def __getitem__(self, idx):
@@ -85,21 +79,10 @@ class VanillaPopulation(PopulationABC):
         macroclassifier."""
         return [clfr for clfr in self._clfrs if clfr.does_match(obs)]
 
-    def gen_matching_trace(self, obs):
-        trace = [clfr.does_match(obs) for clfr in self._clfrs]
-        num_matching_ops_done = len(trace)
-
-        return (trace, num_matching_ops_done)
-
 
 class FastMatchingPopulation(PopulationABC):
     """Population that uses an index to perform fast matching."""
-    def __init__(self,
-                 vanilla_pop,
-                 encoding,
-                 seed,
-                 rasterizer_num_grid_dims,
-                 rasterizer_num_bins_per_grid_dim=None):
+    def __init__(self, vanilla_pop, encoding, rasterizer_kwargs):
         """FastMatchingPopulation needs to be inited from existing
         VanillaPopulation."""
 
@@ -109,23 +92,9 @@ class FastMatchingPopulation(PopulationABC):
         self._num_micros = vanilla_pop._num_micros
         self._ops_history = vanilla_pop._ops_history
 
-        obs_space = encoding.obs_space
-
-        if isinstance(obs_space, IntegerObsSpace):
-            assert rasterizer_num_bins_per_grid_dim is None
-            rasterizer = IntegerObsSpaceRasterizer(
-                obs_space, num_grid_dims=rasterizer_num_grid_dims, seed=seed)
-
-        elif isinstance(obs_space, RealObsSpace):
-            # TODO
-            assert rasterizer_num_bins_per_grid_dim is not None
-
-        else:
-            assert False
-
         self._index = CoverageMap(
             encoding=encoding,
-            rasterizer=rasterizer,
+            rasterizer_kwargs=rasterizer_kwargs,
             phenotypes=[clfr.condition.phenotype for clfr in self._clfrs])
 
     def add_new(self, clfr, op, time_step=None):
@@ -153,17 +122,3 @@ class FastMatchingPopulation(PopulationABC):
             clfr for clfr in self._clfrs if sparse_phenotype_matching_map.get(
                 clfr.condition.phenotype, False)
         ]
-
-    def gen_matching_trace(self, obs):
-        (sparse_phenotype_matching_map, num_matching_ops_done) = \
-            self._index.gen_matching_trace(obs)
-
-        trace = [
-            sparse_phenotype_matching_map.get(clfr.condition.phenotype, False)
-            for clfr in self._clfrs
-        ]
-
-        return (trace, num_matching_ops_done)
-
-    def gen_partial_matching_trace(self, obs):
-        return self._index.gen_partial_matching_trace(obs)

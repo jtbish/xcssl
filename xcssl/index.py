@@ -1,10 +1,14 @@
 import numpy as np
 
+from .rasterizer import make_rasterizer
+
 
 class CoverageMap:
-    def __init__(self, encoding, rasterizer, phenotypes):
+    def __init__(self, encoding, rasterizer_kwargs, phenotypes):
         self._encoding = encoding
-        self._rasterizer = rasterizer
+
+        self._rasterizer = make_rasterizer(self._encoding.obs_space,
+                                           rasterizer_kwargs)
 
         self._phenotype_count_map = self._init_phenotype_count_map(phenotypes)
 
@@ -60,34 +64,9 @@ class CoverageMap:
             aabb = self._phenotype_aabb_map[phenotype]
 
             sparse_phenotype_matching_map[
-                phenotype] = self._rasterizer.match_idxd_aabb(
-                    aabb, obs, phenotype, self._encoding)
+                phenotype] = self._rasterizer.match_idxd_aabb(aabb, obs)
 
         return sparse_phenotype_matching_map
-
-    def gen_matching_trace(self, obs):
-
-        sparse_phenotype_matching_map = {}
-
-        grid_cell = self._rasterizer.rasterize_obs(obs)
-
-        phenotype_set = self._grid_cell_phenotypes_map[grid_cell]
-
-        for phenotype in phenotype_set:
-
-            aabb = self._phenotype_aabb_map[phenotype]
-
-            sparse_phenotype_matching_map[
-                phenotype] = self._rasterizer.match_idxd_aabb(
-                    aabb, obs, phenotype, self._encoding)
-
-        num_matching_ops_done = len(phenotype_set)
-
-        return (sparse_phenotype_matching_map, num_matching_ops_done)
-
-    def gen_partial_matching_trace(self, obs):
-        grid_cell = self._rasterizer.rasterize_obs(obs)
-        return len(self._grid_cell_phenotypes_map[grid_cell])
 
     def try_add_phenotype(self, phenotype):
         try:

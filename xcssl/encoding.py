@@ -61,10 +61,11 @@ class EncodingABC(metaclass=abc.ABCMeta):
 
 class TernaryEncoding(EncodingABC):
     _COND_CLS = TernaryCondition
+
     _PHENOTYPE_ELEM_BOUNDING_INTERVALS = {
-        0: (0, 0),
-        1: (1, 1),
-        TERNARY_HASH: (0, 1)
+        0: IntegerInterval(0, 0),
+        1: IntegerInterval(1, 1),
+        TERNARY_HASH: IntegerInterval(0, 1)
     }
 
     def __init__(self, obs_space):
@@ -123,13 +124,9 @@ class TernaryEncoding(EncodingABC):
         return True
 
     def make_phenotype_aabb(self, phenotype):
-        intervals = []
-
-        for elem in phenotype:
-            (lower, upper) = self._PHENOTYPE_ELEM_BOUNDING_INTERVALS[elem]
-            intervals.append(IntegerInterval(lower, upper))
-
-        return AxisAlignedBoundingBox(intervals)
+        return AxisAlignedBoundingBox([
+            self._PHENOTYPE_ELEM_BOUNDING_INTERVALS[elem] for elem in phenotype
+        ])
 
 
 class UnorderedBoundEncodingABC(EncodingABC, metaclass=abc.ABCMeta):
