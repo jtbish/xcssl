@@ -76,31 +76,22 @@ class ObsSpaceRasterizerABC(metaclass=abc.ABCMeta):
         return self._num_grid_cells
 
     def rasterize_aabb(self, aabb):
-
         bins_covered_on_grid_dims = self._rasterize_aabb_on_grid_dims(aabb)
-
-        grid_cells_covered = []
-        for grid_cell_bin_combo in itertools.product(
-                *bins_covered_on_grid_dims):
-
-            grid_cells_covered.append(
-                self._convert_grid_cell_bin_combo_to_dec(grid_cell_bin_combo))
-
-        return tuple(grid_cells_covered)
+        return itertools.product(*bins_covered_on_grid_dims)
 
     @abc.abstractmethod
     def _rasterize_aabb_on_grid_dims(self, aabb):
         raise NotImplementedError
 
     def rasterize_obs(self, obs):
-        return self._convert_grid_cell_bin_combo_to_dec(
+        return self.convert_grid_cell_bin_combo_to_dec(
             self._rasterize_obs_on_grid_dims(obs))
 
     @abc.abstractmethod
     def _rasterize_obs_on_grid_dims(self, obs):
         raise NotImplementedError
 
-    def _convert_grid_cell_bin_combo_to_dec(self, grid_cell_bin_combo):
+    def convert_grid_cell_bin_combo_to_dec(self, grid_cell_bin_combo):
         return sum(e * b_pow
                    for (e, b_pow) in zip(grid_cell_bin_combo, self._b_pow_vec))
 

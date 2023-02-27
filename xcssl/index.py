@@ -41,16 +41,24 @@ class CoverageMap:
         phenotype_grid_cells_map = {}
         grid_cell_phenotypes_map = np.empty(shape=rasterizer.num_grid_cells,
                                             dtype="object")
-        for idx in range(0, rasterizer.num_grid_cells):
-            grid_cell_phenotypes_map[idx] = set()
+        for grid_cell in range(0, rasterizer.num_grid_cells):
+            grid_cell_phenotypes_map[grid_cell] = set()
 
         for (phenotype, aabb) in phenotype_aabb_map.items():
 
-            grid_cells_covered = rasterizer.rasterize_aabb(aabb)
-            phenotype_grid_cells_map[phenotype] = grid_cells_covered
+            grid_cells_covered_iter = rasterizer.rasterize_aabb(aabb)
+            grid_cells_covered = []
 
-            for grid_cell in grid_cells_covered:
+            for grid_cell_bin_combo in grid_cells_covered_iter:
+
+                grid_cell = rasterizer.convert_grid_cell_bin_combo_to_dec(
+                    grid_cell_bin_combo)
+
+                grid_cells_covered.append(grid_cell)
+
                 (grid_cell_phenotypes_map[grid_cell]).add(phenotype)
+
+            phenotype_grid_cells_map[phenotype] = tuple(grid_cells_covered)
 
         return (phenotype_grid_cells_map, grid_cell_phenotypes_map)
 
@@ -85,11 +93,19 @@ class CoverageMap:
         aabb = self._encoding.make_phenotype_aabb(addee)
         self._phenotype_aabb_map[addee] = aabb
 
-        grid_cells_covered = self._rasterizer.rasterize_aabb(aabb)
-        self._phenotype_grid_cells_map[addee] = grid_cells_covered
+        grid_cells_covered_iter = self._rasterizer.rasterize_aabb(aabb)
+        grid_cells_covered = []
 
-        for grid_cell in grid_cells_covered:
+        for grid_cell_bin_combo in grid_cells_covered_iter:
+
+            grid_cell = self._rasterizer.convert_grid_cell_bin_combo_to_dec(
+                grid_cell_bin_combo)
+
+            grid_cells_covered.append(grid_cell)
+
             (self._grid_cell_phenotypes_map[grid_cell]).add(addee)
+
+        self._phenotype_grid_cells_map[addee] = tuple(grid_cells_covered)
 
     def try_remove_phenotype(self, phenotype):
         count = self._phenotype_count_map[phenotype]
