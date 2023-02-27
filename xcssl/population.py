@@ -30,19 +30,16 @@ class TimedPopulationWrapper:
 
     @classmethod
     def as_vanilla_pop(cls):
+        wrapped_pop = VanillaPopulation()
+
         # timed vanilla pop gets zeroed timers
+        # (time to init vanilla pop is negligible so considered to be zero)
         timers = {
             "__init__": 0.0,
             "add_new": 0.0,
             "remove": 0.0,
             "gen_match_set": 0.0
         }
-
-        tick = time.perf_counter()
-        wrapped_pop = VanillaPopulation()
-        tock = time.perf_counter()
-
-        timers["__init__"] += (tock - tick)
 
         return cls(wrapped_pop, timers)
 
