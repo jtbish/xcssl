@@ -1,6 +1,113 @@
 import abc
+import time
 
 from .index import CoverageMap
+
+
+def make_vanilla_population(do_timing=False):
+    if not do_timing:
+        return VanillaPopulation()
+    else:
+        return TimedPopulationWrapper.as_vanilla_pop()
+
+
+def make_fm_population(vanilla_pop,
+                       encoding,
+                       rasterizer_kwargs,
+                       do_timing=False):
+    if not do_timing:
+        return FastMatchingPopulation(vanilla_pop, encoding, rasterizer_kwargs)
+    else:
+        timed_vanilla_pop = vanilla_pop
+        return TimedPopulationWrapper.as_fm_pop_from_timed_vanilla_pop(
+            timed_vanilla_pop, encoding, rasterizer_kwargs)
+
+
+class TimedPopulationWrapper:
+    def __init__(self, wrapped_pop, timers):
+        self._wrapped_pop = wrapped_pop
+        self._timers = timers
+
+    @classmethod
+    def as_vanilla_pop(cls):
+        # timed vanilla pop gets zeroed timers
+        timers = {
+            "__init__": 0.0,
+            "add_new": 0.0,
+            "remove": 0.0,
+            "gen_match_set": 0.0
+        }
+
+        tick = time.perf_counter()
+        wrapped_pop = VanillaPopulation()
+        tock = time.perf_counter()
+
+        timers["__init__"] += (tock - tick)
+
+        return cls(wrapped_pop, timers)
+
+    @classmethod
+    def as_fm_pop_from_timed_vanilla_pop(cls, timed_vanilla_pop, encoding,
+                                         rasterizer_kwargs):
+        assert isinstance(timed_vanilla_pop, TimedPopulationWrapper)
+        vanilla_pop = timed_vanilla_pop._wrapped_pop
+
+        tick = time.perf_counter()
+        wrapped_pop = FastMatchingPopulation(vanilla_pop, encoding,
+                                             rasterizer_kwargs)
+        tock = time.perf_counter()
+
+        # timed FM pop inherits timers of timed vanilla pop
+        timers = timed_vanilla_pop._timers
+        timers["__init__"] += (tock - tick)
+
+        return cls(wrapped_pop, timers)
+
+    @property
+    def timers(self):
+        return self._timers
+
+    @property
+    def num_macros(self):
+        return self._wrapped_pop.num_macros
+
+    @property
+    def num_micros(self):
+        return self._wrapped_pop.num_micros
+
+    @property
+    def ops_history(self):
+        return self._wrapped_pop.ops_history
+
+    def alter_numerosity(self, clfr, delta, op):
+        self._wrapped_pop.alter_numerosity(clfr, delta, op)
+
+    def add_new(self, clfr, op, time_step=None):
+        tick = time.perf_counter()
+        self._wrapped_pop.add_new(clfr, op, time_step)
+        tock = time.perf_counter()
+
+        self._timers["add_new"] += (tock - tick)
+
+    def remove(self, clfr, op=None):
+        tick = time.perf_counter()
+        self._wrapped_pop.remove(clfr, op)
+        tock = time.perf_counter()
+
+        self._timers["remove"] += (tock - tick)
+
+    def gen_match_set(self, obs):
+        tick = time.perf_counter()
+        self._wrapped_pop.gen_match_set(obs)
+        tock = time.perf_counter()
+
+        self._timers["gen_match_set"] += (tock - tick)
+
+    def __getitem__(self, idx):
+        return self._wrapped_pop[idx]
+
+    def __iter__(self):
+        return iter(self._wrapped_pop)
 
 
 class PopulationABC(metaclass=abc.ABCMeta):
