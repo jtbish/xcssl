@@ -19,6 +19,16 @@ class CoverageMap:
          self._grid_cell_phenotypes_map) = self._gen_maps(
              self._encoding, self._rasterizer, self._phenotype_aabb_map)
 
+    @classmethod
+    def from_scratch(cls, encoding, rasterizer_kwargs):
+        # no phenotypes passed to init
+        return cls(encoding, rasterizer_kwargs, phenotypes=[])
+
+    @classmethod
+    def from_phenotypes(cls, encoding, rasterizer_kwargs, phenotypes):
+        # given phenotypes passed to init
+        return cls(encoding, rasterizer_kwargs, phenotypes)
+
     def _init_phenotype_count_map(self, phenotypes):
         phenotype_count_map = {}
 

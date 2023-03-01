@@ -5,64 +5,35 @@ from .index import CoverageMap
 
 
 def make_vanilla_population(do_timing=False):
+    pop = VanillaPopulation()
+
     if not do_timing:
-        return VanillaPopulation()
+        return pop
     else:
-        return TimedPopulationWrapper.as_vanilla_pop()
+        return TimedPopulationWrapper(pop)
 
 
-def make_fm_population(vanilla_pop,
-                       encoding,
-                       rasterizer_kwargs,
-                       do_timing=False):
+def make_fm_population(encoding, rasterizer_kwargs, do_timing=False):
+    pop = FastMatchingPopulation(encoding, rasterizer_kwargs)
+
     if not do_timing:
-        return FastMatchingPopulation(vanilla_pop, encoding, rasterizer_kwargs)
+        return pop
     else:
-        timed_vanilla_pop = vanilla_pop
-        return TimedPopulationWrapper.as_fm_pop_from_timed_vanilla_pop(
-            timed_vanilla_pop, encoding, rasterizer_kwargs)
+        return TimedPopulationWrapper(pop)
 
 
 class TimedPopulationWrapper:
-    def __init__(self, wrapped_pop, timers):
+    def __init__(self, wrapped_pop):
         self._wrapped_pop = wrapped_pop
-        self._timers = timers
-
-    @classmethod
-    def as_vanilla_pop(cls):
-        wrapped_pop = VanillaPopulation()
-
-        # timed vanilla pop gets zeroed timers
-        # (time to init vanilla pop is negligible so considered to be zero)
-        timers = {
-            "__init__": 0.0,
-            "add_new": 0.0,
-            "remove": 0.0,
-            "gen_match_set": 0.0
-        }
-
-        return cls(wrapped_pop, timers)
-
-    @classmethod
-    def as_fm_pop_from_timed_vanilla_pop(cls, timed_vanilla_pop, encoding,
-                                         rasterizer_kwargs):
-        assert isinstance(timed_vanilla_pop, TimedPopulationWrapper)
-        vanilla_pop = timed_vanilla_pop._wrapped_pop
-
-        tick = time.perf_counter()
-        wrapped_pop = FastMatchingPopulation(vanilla_pop, encoding,
-                                             rasterizer_kwargs)
-        tock = time.perf_counter()
-
-        # timed FM pop inherits timers of timed vanilla pop
-        timers = timed_vanilla_pop._timers
-        timers["__init__"] += (tock - tick)
-
-        return cls(wrapped_pop, timers)
+        self._timers = {"add_new": 0.0, "remove": 0.0, "gen_match_set": 0.0}
 
     @property
     def timers(self):
         return self._timers
+
+    @property
+    def clfrs(self):
+        return self._wrapped_pop.clfrs
 
     @property
     def num_macros(self):
@@ -95,10 +66,12 @@ class TimedPopulationWrapper:
 
     def gen_match_set(self, obs):
         tick = time.perf_counter()
-        self._wrapped_pop.gen_match_set(obs)
+        match_set = self._wrapped_pop.gen_match_set(obs)
         tock = time.perf_counter()
 
         self._timers["gen_match_set"] += (tock - tick)
+
+        return match_set
 
     def __getitem__(self, idx):
         return self._wrapped_pop[idx]
@@ -111,6 +84,22 @@ class PopulationABC(metaclass=abc.ABCMeta):
     """Population is just a list of macroclassifiers with tracking of the number of
     microclassifiers, in order to avoid having to calculate this number on the
     fly repeatedly and waste time."""
+    def __init__(self):
+        self._clfrs = []
+        self._num_micros = 0
+        self._ops_history = {
+            "covering": 0,
+            "absorption": 0,
+            "insertion": 0,
+            "deletion": 0,
+            "ga_subsumption": 0,
+            "as_subsumption": 0
+        }
+
+    @property
+    def clfrs(self):
+        return self._clfrs
+
     @property
     def num_macros(self):
         return len(self._clfrs)
@@ -151,20 +140,8 @@ class PopulationABC(metaclass=abc.ABCMeta):
 
 
 class VanillaPopulation(PopulationABC):
-    """Default-style population that does not use phenotype clustering and
+    """Default-style population that does not use an index and
     perfoms fully accurate and exhuastive matching."""
-    def __init__(self):
-        self._clfrs = []
-        self._num_micros = 0
-        self._ops_history = {
-            "covering": 0,
-            "absorption": 0,
-            "insertion": 0,
-            "deletion": 0,
-            "ga_subsumption": 0,
-            "as_subsumption": 0
-        }
-
     def add_new(self, clfr, op, time_step=None):
         self._clfrs.append(clfr)
         self._num_micros += clfr.numerosity
@@ -186,20 +163,9 @@ class VanillaPopulation(PopulationABC):
 
 class FastMatchingPopulation(PopulationABC):
     """Population that uses an index to perform fast matching."""
-    def __init__(self, vanilla_pop, encoding, rasterizer_kwargs):
-        """FastMatchingPopulation needs to be inited from existing
-        VanillaPopulation."""
-
-        assert isinstance(vanilla_pop, VanillaPopulation)
-
-        self._clfrs = vanilla_pop._clfrs
-        self._num_micros = vanilla_pop._num_micros
-        self._ops_history = vanilla_pop._ops_history
-
-        self._index = CoverageMap(
-            encoding=encoding,
-            rasterizer_kwargs=rasterizer_kwargs,
-            phenotypes=[clfr.condition.phenotype for clfr in self._clfrs])
+    def __init__(self, encoding, rasterizer_kwargs):
+        super().__init__()
+        self._index = CoverageMap.from_scratch(encoding, rasterizer_kwargs)
 
     def add_new(self, clfr, op, time_step=None):
         self._clfrs.append(clfr)

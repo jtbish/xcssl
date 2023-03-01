@@ -1,7 +1,5 @@
-import abc
 import logging
 from collections import OrderedDict, deque
-from enum import Enum
 
 from .action_selection import (NULL_ACTION, ActionSelectionModes,
                                choose_action_selection_mode,
@@ -15,26 +13,20 @@ from .ga import run_ga
 from .hyperparams import get_hyperparam as get_hp
 from .hyperparams import register_hyperparams
 from .param_update import update_action_set
-from .population import FastMatchingPopulation, VanillaPopulation
+from .population import make_fm_population, make_vanilla_population
 from .rng import seed_rng
 from .util import calc_num_micros
-
-MatchingModes = Enum("MatchingModes", ["full", "fast"])
 
 _EXPLOIT_CORRECT_HISTORY_MAXLEN = 100
 
 
-def make_xcs(env, encoding, hyperparams_dict, use_fm):
-    if use_fm:
-        cls = FastMatchingXCS
-    else:
-        cls = VanillaXCS
-
-    return cls(env, encoding, hyperparams_dict)
-
-
-class XCSABC(metaclass=abc.ABCMeta):
-    def __init__(self, env, encoding, hyperparams_dict):
+class XCS:
+    def __init__(self,
+                 env,
+                 encoding,
+                 hyperparams_dict,
+                 use_fm=False,
+                 do_pop_timing=False):
 
         assert isinstance(env, ClassificationStreamEnvironment)
         self._env = env
@@ -49,11 +41,29 @@ class XCSABC(metaclass=abc.ABCMeta):
         self._exploit_correct_history = \
             deque(maxlen=_EXPLOIT_CORRECT_HISTORY_MAXLEN)
 
-        # always starts out with vanilla pop, switches later if using FM
-        self._pop = VanillaPopulation()
-
         # always cover all actions
         self._theta_mna = len(self._env.action_space)
+
+        if not use_fm:
+            self._pop = make_vanilla_population(do_pop_timing)
+
+        else:
+            # collect rasterizer kwargs for index
+            seed = get_hp("seed")
+            rngd = get_hp("rstr_num_grid_dims")
+            try:
+                rnbpgd = get_hp("rstr_num_bins_per_grid_dim")
+            except KeyError:
+                rnbpgd = None
+
+            rasterizer_kwargs = {
+                "seed": seed,
+                "num_grid_dims": rngd,
+                "num_bins_per_grid_dim": rnbpgd
+            }
+
+            self._pop = make_fm_population(self._encoding, rasterizer_kwargs,
+                                           do_pop_timing)
 
     @property
     def pop(self):
@@ -72,13 +82,38 @@ class XCSABC(metaclass=abc.ABCMeta):
             self._run_step()
         self._num_steps_done += num_steps
 
-    @abc.abstractmethod
     def _run_step(self):
-        raise NotImplementedError
+        obs = self._env.curr_obs
+        match_set = self._gen_match_set_and_cover(obs)
+        prediction_arr = self._gen_prediction_arr(match_set, obs)
+        action = self._select_action(prediction_arr)
+        action_set = self._gen_action_set(match_set, action)
 
-    @abc.abstractmethod
+        # single-step only, no previous action sets or discounting
+        env_response = self._env.step(action)
+
+        if self._action_selection_mode == ActionSelectionModes.exploit:
+            self._exploit_correct_history.append(env_response.correct)
+
+        payoff = env_response.reward
+
+        update_action_set(action_set, payoff, obs, self._pop)
+        self._try_run_ga(action_set, self._pop, self._time_step,
+                         self._encoding, obs, self._env.action_space)
+        self._time_step += 1
+
     def _gen_match_set_and_cover(self, obs):
-        raise NotImplementedError
+        match_set = self._gen_match_set(obs)
+
+        while (calc_num_unique_actions(match_set) < self._theta_mna):
+            clfr = gen_covering_classifier(obs, self._encoding, match_set,
+                                           self._env.action_space,
+                                           self._time_step)
+            self._pop.add_new(clfr, op="covering", time_step=self._time_step)
+            deletion(self._pop)
+            match_set.append(clfr)
+
+        return match_set
 
     def _gen_match_set(self, obs):
         return self._pop.gen_match_set(obs)
@@ -148,119 +183,3 @@ class XCSABC(metaclass=abc.ABCMeta):
         """For outside testing."""
         match_set = self._gen_match_set(obs)
         return self._gen_prediction_arr(match_set, obs)
-
-
-class VanillaXCS(XCSABC):
-    def _run_step(self):
-        obs = self._env.curr_obs
-        match_set = self._gen_match_set_and_cover(obs)
-        prediction_arr = self._gen_prediction_arr(match_set, obs)
-        action = self._select_action(prediction_arr)
-        action_set = self._gen_action_set(match_set, action)
-
-        # single-step only, no previous action sets or discounting
-        env_response = self._env.step(action)
-
-        if self._action_selection_mode == ActionSelectionModes.exploit:
-            self._exploit_correct_history.append(env_response.correct)
-
-        payoff = env_response.reward
-
-        update_action_set(action_set, payoff, obs, self._pop)
-        self._try_run_ga(action_set, self._pop, self._time_step,
-                         self._encoding, obs, self._env.action_space)
-        self._time_step += 1
-
-    def _gen_match_set_and_cover(self, obs):
-        match_set = self._gen_match_set(obs)
-
-        while (calc_num_unique_actions(match_set) < self._theta_mna):
-            clfr = gen_covering_classifier(obs, self._encoding, match_set,
-                                           self._env.action_space,
-                                           self._time_step)
-            self._pop.add_new(clfr, op="covering", time_step=self._time_step)
-            deletion(self._pop)
-            match_set.append(clfr)
-
-        return match_set
-
-
-class FastMatchingXCS(XCSABC):
-    def __init__(self, env, encoding, hyperparams_dict):
-        super().__init__(env, encoding, hyperparams_dict)
-
-        # starts out doing full matching with vanilla pop
-        # switches to fast mathcing according to theta_fm hyperparam
-        self._match_mode = MatchingModes.full
-        self._last_cover_time_step = MIN_TIME_STEP
-
-    def _run_step(self):
-        obs = self._env.curr_obs
-        match_set = self._gen_match_set_and_cover(obs)
-        prediction_arr = self._gen_prediction_arr(match_set, obs)
-        action = self._select_action(prediction_arr)
-        action_set = self._gen_action_set(match_set, action)
-
-        # single-step only, no previous action sets or discounting
-        env_response = self._env.step(action)
-
-        if self._action_selection_mode == ActionSelectionModes.exploit:
-            self._exploit_correct_history.append(env_response.correct)
-
-        payoff = env_response.reward
-
-        update_action_set(action_set, payoff, obs, self._pop)
-        self._try_run_ga(action_set, self._pop, self._time_step,
-                         self._encoding, obs, self._env.action_space)
-        self._time_step += 1
-
-        self._try_switch_match_mode()
-
-    def _gen_match_set_and_cover(self, obs):
-        match_set = self._gen_match_set(obs)
-
-        while (calc_num_unique_actions(match_set) < self._theta_mna):
-            clfr = gen_covering_classifier(obs, self._encoding, match_set,
-                                           self._env.action_space,
-                                           self._time_step)
-            self._pop.add_new(clfr, op="covering", time_step=self._time_step)
-            deletion(self._pop)
-            match_set.append(clfr)
-
-            self._last_cover_time_step = self._time_step
-
-        return match_set
-
-    def _try_switch_match_mode(self):
-        if self._match_mode == MatchingModes.full:
-
-            time_steps_since_last_cover = (self._time_step -
-                                           self._last_cover_time_step)
-
-            should_switch_mode = (
-                time_steps_since_last_cover == get_hp("theta_fm"))
-
-            if should_switch_mode:
-
-                logging.info(f"Switching to fast matching @ time step "
-                             f"{self._time_step}")
-                self._match_mode = MatchingModes.fast
-
-                seed = get_hp("seed")
-                rngd = get_hp("rstr_num_grid_dims")
-                try:
-                    rnbpgd = get_hp("rstr_num_bins_per_grid_dim")
-                except KeyError:
-                    rnbpgd = None
-
-                rasterizer_kwargs = {
-                    "seed": seed,
-                    "num_grid_dims": rngd,
-                    "num_bins_per_grid_dim": rnbpgd
-                }
-
-                # replace vanilla pop with FM pop
-                self._pop = FastMatchingPopulation(
-                    vanilla_pop=self._pop,
-                    encoding=self._encoding,
-                    rasterizer_kwargs=rasterizer_kwargs)
