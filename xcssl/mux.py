@@ -41,7 +41,7 @@ def make_mux_stream_env(num_addr_bits, seed=None):
     def _gen_instance(rng, num_addr_bits, total_num_bits):
         # gen random bitstring and calc label for it
         obs = rng.randint(low=0, high=(1 + 1), size=total_num_bits)
-        label = _calc_label(obs, num_addr_bits)
+        label = calc_mux_label(obs, num_addr_bits)
         return StreamDataInstance(obs=obs, label=label)
 
     instance_gen_func = partial(_gen_instance,
@@ -63,7 +63,7 @@ def _gen_dataset(num_addr_bits, total_num_bits):
 
     for bitstring in bitstrings:
         examples.append(np.array(bitstring, dtype=_NP_DTYPE))
-        label = _calc_label(bitstring, num_addr_bits)
+        label = calc_mux_label(bitstring, num_addr_bits)
         labels.append(label)
 
     assert len(examples) == len(labels)
@@ -73,7 +73,7 @@ def _gen_dataset(num_addr_bits, total_num_bits):
     return dataset
 
 
-def _calc_label(bitstring, num_addr_bits):
+def calc_mux_label(bitstring, num_addr_bits):
     """Apply MUX function."""
     addr_bits = bitstring[:num_addr_bits]
     reg_bits = bitstring[num_addr_bits:]

@@ -206,8 +206,9 @@ class UnorderedBoundEncodingABC(EncodingABC, metaclass=abc.ABCMeta):
                 return False
         return True
 
-    def calc_phenotype_bounding_intervals_on_dims(self, phenotype, dim_idxs):
-        raise NotImplementedError
+    def make_phenotype_aabb(self, phenotype):
+        # phenotype is already an AABB!
+        return AxisAlignedBoundingBox([interval for interval in phenotype])
 
 
 class IntegerUnorderedBoundEncoding(UnorderedBoundEncodingABC):

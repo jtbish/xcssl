@@ -3,10 +3,10 @@ import itertools
 
 import numpy as np
 
-from .dimension import IntegerDimension, RealDimension
 from .obs_space import IntegerObsSpace, RealObsSpace
 
 _MIN_NUM_GRID_DIMS = 1
+_MIN_NUM_BINS_PER_GRID_DIM = 2
 
 
 def make_rasterizer(obs_space, rasterizer_kwargs):
@@ -136,8 +136,64 @@ class IntegerObsSpaceRasterizer(ObsSpaceRasterizerABC):
         return tuple(obs[idx] for idx in self._grid_dim_idxs)
 
     def match_idxd_aabb(self, aabb, obs):
+        # logic here is that, since all possible vals on each of the grid dims
+        # is being indexed, the only thing needed to check if aabb matches is
+        # to check the anti grid dims
         return aabb.contains_obs_given_dims(obs, self._anti_grid_dim_idxs)
 
 
 class RealObsSpaceRasterizer(ObsSpaceRasterizerABC):
-    pass
+    def __init__(self, obs_space, seed, num_grid_dims, num_bins_per_grid_dim):
+        num_bins_per_grid_dim = int(num_bins_per_grid_dim)
+        assert num_bins_per_grid_dim >= _MIN_NUM_BINS_PER_GRID_DIM
+
+        super().__init__(obs_space, seed, num_grid_dims, num_bins_per_grid_dim)
+
+        # enforce that obs space must be min-max scaled to occupy unit
+        # hypercube (this makes rasterization logic easier)
+        for dim in obs_space:
+            assert dim.lower == 0.0
+            assert dim.upper == 1.0
+
+        # bin width (same on all unit span dims due to obs space check
+        # just above)
+        self._w = (1.0 / num_bins_per_grid_dim)
+
+        self._max_bin_idx = (self._b - 1)
+
+    def _rasterize_aabb_on_grid_dims(self, aabb):
+        bins_covered_on_grid_dims = []
+
+        for dim_idx in self._grid_dim_idxs:
+            interval = aabb[dim_idx]
+            # calc the bins that lower/upper of the interval occupies
+            lower_bin_idx = self._calc_bin_idx(interval.lower)
+            upper_bin_idx = self._calc_bin_idx(interval.upper)
+            # then say that the interval covers all the in-between bins as well
+            # (if any)
+            bins_covered_on_grid_dims.append(
+                tuple(range(lower_bin_idx, (upper_bin_idx + 1), 1)))
+
+        return bins_covered_on_grid_dims
+
+    def _rasterize_obs_on_grid_dims(self, obs):
+        return tuple(
+            self._calc_bin_idx(obs[idx]) for idx in self._grid_dim_idxs)
+
+    def _calc_bin_idx(self, val):
+        # first do int division, cast to int
+        # then handle the edge case of one over the max bin idx by truncating
+        # with min()
+        return min(int(val // self._w), self._max_bin_idx)
+
+    def match_idxd_aabb(self, aabb, obs):
+        # logic here is that, if obs not contained in anti grid dim AABB
+        # intervals, not possible for it to match.
+        # However, if the obs *is contained* in the anti grid dim intervals,
+        # still possible that the whole AABB could not match, due to the
+        # discretisation of the real space applied on the grid dim idxs,
+        # so need to check the grid dim intervals as well in that case.
+        if not aabb.contains_obs_given_dims(obs, self._anti_grid_dim_idxs):
+            return False
+        else:
+            return aabb.contains_obs_given_dims(obs, self._grid_dim_idxs)
