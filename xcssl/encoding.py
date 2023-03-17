@@ -144,8 +144,8 @@ class UnorderedBoundEncodingABC(EncodingABC, metaclass=abc.ABCMeta):
             cover_alleles = [lower, upper]
             # to avoid bias, insert alleles into genotype in random order
             get_rng().shuffle(cover_alleles)
-            for allele in cover_alleles:
-                cond_alleles.append(allele)
+            cond_alleles.extend(cover_alleles)
+
         assert len(cond_alleles) == num_alleles
         return self.make_condition(cond_alleles)
 
@@ -171,13 +171,15 @@ class UnorderedBoundEncodingABC(EncodingABC, metaclass=abc.ABCMeta):
         raise NotImplementedError
 
     def mutate_condition_alleles(self, cond_alleles, obs=None):
-        alleles = cond_alleles
-        assert len(alleles) % 2 == 0
-        allele_pairs = [(alleles[i], alleles[i + 1])
-                        for i in range(0, len(alleles), 2)]
+        assert len(cond_alleles) % 2 == 0
+
         mut_alleles = []
-        for (allele_pair, dim) in zip(allele_pairs, self._obs_space):
-            for allele in allele_pair:
+        i = 0
+        for dim in self._obs_space:
+
+            # independently mutate each allele for this dim
+            for allele in (cond_alleles[i], cond_alleles[i + 1]):
+
                 if get_rng().random() < get_hp("mu"):
                     noise = self._gen_mutation_noise(dim)
                     sign = get_rng().choice([-1, 1])
@@ -187,7 +189,10 @@ class UnorderedBoundEncodingABC(EncodingABC, metaclass=abc.ABCMeta):
                     mut_alleles.append(mut_allele)
                 else:
                     mut_alleles.append(allele)
-        assert len(mut_alleles) == len(alleles)
+
+            i += 2
+
+        assert len(mut_alleles) == len(cond_alleles)
         return mut_alleles
 
     @abc.abstractmethod
@@ -248,6 +253,7 @@ class IntegerUnorderedBoundEncoding(UnorderedBoundEncodingABC):
 class RealUnorderedBoundEncoding(UnorderedBoundEncodingABC):
     _GENERALITY_LB_INCL = 0
     _INTERVAL_CLS = RealInterval
+    _MUT_MEAN = 0.0
 
     def __init__(self, obs_space):
         assert isinstance(obs_space, RealObsSpace)
@@ -268,7 +274,7 @@ class RealUnorderedBoundEncoding(UnorderedBoundEncodingABC):
     def calc_phenotype_generality(self, phenotype):
         cond_intervals = phenotype.elems
         numer = sum(interval.calc_span() for interval in cond_intervals)
-        denom = sum(dim for dim in self._obs_space)
+        denom = sum(dim.span for dim in self._obs_space)
         generality = numer / denom
         # gen could be 0 if all intervals in numer collapse to single point
         assert self._GENERALITY_LB_INCL <= generality <= \
@@ -276,9 +282,9 @@ class RealUnorderedBoundEncoding(UnorderedBoundEncodingABC):
         return generality
 
     def _gen_mutation_noise(self, dim):
-        # m_0 interpreted as fraction of dim span to draw uniform random
-        # noise from
+        # m_0 interpreted as fraction of dim span to use for stdev of gaussian
+        # random noise
         m_nought = get_hp("m_nought")
         assert 0.0 < m_nought <= 1.0
-        mut_high = (m_nought * dim.span)
-        return get_rng().uniform(low=0, high=mut_high)
+        return get_rng().normal(loc=self._MUT_MEAN,
+                                scale=(m_nought * dim.span))

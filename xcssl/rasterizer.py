@@ -1,5 +1,6 @@
 import abc
 import itertools
+import math
 
 import numpy as np
 
@@ -144,6 +145,7 @@ class IntegerObsSpaceRasterizer(ObsSpaceRasterizerABC):
 
 class RealObsSpaceRasterizer(ObsSpaceRasterizerABC):
     def __init__(self, obs_space, seed, num_grid_dims, num_bins_per_grid_dim):
+
         num_bins_per_grid_dim = int(num_bins_per_grid_dim)
         assert num_bins_per_grid_dim >= _MIN_NUM_BINS_PER_GRID_DIM
 
@@ -154,10 +156,6 @@ class RealObsSpaceRasterizer(ObsSpaceRasterizerABC):
         for dim in obs_space:
             assert dim.lower == 0.0
             assert dim.upper == 1.0
-
-        # bin width (same on all unit span dims due to obs space check
-        # just above)
-        self._w = (1.0 / num_bins_per_grid_dim)
 
         self._max_bin_idx = (self._b - 1)
 
@@ -184,7 +182,7 @@ class RealObsSpaceRasterizer(ObsSpaceRasterizerABC):
         # first do int division, cast to int
         # then handle the edge case of one over the max bin idx by truncating
         # with min()
-        return min(int(val // self._w), self._max_bin_idx)
+        return min(int(val * self._b), self._max_bin_idx)
 
     def match_idxd_aabb(self, aabb, obs):
         # logic here is that, if obs not contained in anti grid dim AABB
