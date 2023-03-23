@@ -10,7 +10,7 @@ def gen_covering_classifier(obs, encoding, match_set, action_space, time_step):
     condition = encoding.gen_covering_condition(obs)
     actions_to_cover = _find_actions_to_cover(match_set, action_space)
     action = get_rng().choice(actions_to_cover)
-    return Classifier(condition, action, time_step)
+    return Classifier.from_covering(condition, action, time_step)
 
 
 def _find_actions_to_cover(match_set, action_space):

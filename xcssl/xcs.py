@@ -1,4 +1,3 @@
-import logging
 from collections import OrderedDict, deque
 
 from .action_selection import (NULL_ACTION, ActionSelectionModes,
@@ -15,7 +14,6 @@ from .hyperparams import register_hyperparams
 from .param_update import update_action_set
 from .population import make_fm_population, make_vanilla_population
 from .rng import seed_rng
-from .util import calc_num_micros
 
 _EXPLOIT_CORRECT_HISTORY_MAXLEN = 100
 
@@ -85,7 +83,7 @@ class XCS:
     def _run_step(self):
         obs = self._env.curr_obs
         match_set = self._gen_match_set_and_cover(obs)
-        prediction_arr = self._gen_prediction_arr(match_set, obs)
+        prediction_arr = self._gen_prediction_arr(match_set)
         action = self._select_action(prediction_arr)
         action_set = self._gen_action_set(match_set, action)
 
@@ -97,7 +95,7 @@ class XCS:
 
         payoff = env_response.reward
 
-        update_action_set(action_set, payoff, obs, self._pop)
+        update_action_set(action_set, payoff, self._pop)
         self._try_run_ga(action_set, self._pop, self._time_step,
                          self._encoding, obs, self._env.action_space)
         self._time_step += 1
@@ -109,7 +107,7 @@ class XCS:
             clfr = gen_covering_classifier(obs, self._encoding, match_set,
                                            self._env.action_space,
                                            self._time_step)
-            self._pop.add_new(clfr, op="covering", time_step=self._time_step)
+            self._pop.add_new(clfr, op="covering")
             deletion(self._pop)
             match_set.append(clfr)
 
@@ -118,10 +116,12 @@ class XCS:
     def _gen_match_set(self, obs):
         return self._pop.gen_match_set(obs)
 
-    def _gen_prediction_arr(self, match_set, obs):
+    def _gen_prediction_arr(self, match_set):
+
         prediction_arr = OrderedDict(
             {action: None
              for action in self._env.action_space})
+
         actions_reprd_in_m = set(clfr.action for clfr in match_set)
         for a in actions_reprd_in_m:
             # to bootstap sum below
@@ -133,12 +133,14 @@ class XCS:
 
         for clfr in match_set:
             a = clfr.action
-            prediction_arr[a] += (clfr.prediction * clfr.fitness)
-            fitness_sum_arr[a] += clfr.fitness
+            fitness = clfr.fitness
+            prediction_arr[a] += (clfr.prediction * fitness)
+            fitness_sum_arr[a] += fitness
 
         for a in self._env.action_space:
             if fitness_sum_arr[a] != 0:
                 prediction_arr[a] /= fitness_sum_arr[a]
+
         return prediction_arr
 
     def _select_action(self, prediction_arr):
@@ -160,21 +162,30 @@ class XCS:
         # GA can only be active on exploration steps
         if self._action_selection_mode == ActionSelectionModes.explore:
 
-            avg_time_stamp_in_as = sum(
-                clfr.time_stamp * clfr.numerosity
-                for clfr in action_set) / calc_num_micros(action_set)
-
+            avg_time_stamp_in_as = self._calc_avg_time_stamp_in_as(action_set)
             should_apply_ga = ((time_step - avg_time_stamp_in_as) >
                                get_hp("theta_ga"))
 
             if should_apply_ga:
                 run_ga(action_set, pop, time_step, encoding, obs, action_space)
 
+    def _calc_avg_time_stamp_in_as(self, action_set):
+        numer = 0
+        denom = 0
+
+        for clfr in action_set:
+            numerosity = clfr.numerosity
+
+            numer += (clfr.time_stamp * numerosity)
+            denom += numerosity
+
+        return (numer / denom)
+
     def select_action(self, obs):
         """Action selection for outside testing - always exploit"""
         match_set = self._gen_match_set(obs)
         if len(match_set) > 0:
-            prediction_arr = self._gen_prediction_arr(match_set, obs)
+            prediction_arr = self._gen_prediction_arr(match_set)
             return greedy_action_selection(prediction_arr)
         else:
             return NULL_ACTION
@@ -182,4 +193,4 @@ class XCS:
     def gen_prediction_arr(self, obs):
         """For outside testing."""
         match_set = self._gen_match_set(obs)
-        return self._gen_prediction_arr(match_set, obs)
+        return self._gen_prediction_arr(match_set)

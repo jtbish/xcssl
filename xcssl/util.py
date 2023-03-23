@@ -7,4 +7,4 @@ def calc_num_micros(clfr_set):
 
 
 def is_empty(clfr_set):
-    return calc_num_macros(clfr_set) == 0
+    return len(clfr_set) == 0

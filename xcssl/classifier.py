@@ -12,17 +12,18 @@ _ATTR_EQ_REL_TOL = 1e-10
 
 
 class Classifier:
-    def __init__(self, condition, action, time_step):
-        """Only used by covering."""
+    """(condition, action) pair with mutable learnt params."""
+    def __init__(self, condition, action, prediction, error, fitness,
+                 experience, time_stamp, action_set_size, numerosity):
         self._condition = condition
         self._action = action
-        self._prediction = get_hp("pred_I")
-        self._error = get_hp("epsilon_I")
-        self._fitness = get_hp("fitness_I")
-        self._experience = 0
-        self._time_stamp = time_step
-        self._action_set_size = 1
-        self._numerosity = 1
+        self._prediction = prediction
+        self._error = error
+        self._fitness = fitness
+        self._experience = experience
+        self._time_stamp = time_stamp
+        self._action_set_size = action_set_size
+        self._numerosity = numerosity
 
         # "reactive"/calculated params for deletion
         self._deletion_vote = self._calc_deletion_vote(self._action_set_size,
@@ -33,21 +34,38 @@ class Classifier:
             self._calc_numerosity_scaled_fitness(self._fitness,
                                                  self._numerosity)
 
+    @classmethod
+    def from_covering(cls, condition, action, time_step):
+        return cls(condition=condition,
+                   action=action,
+                   prediction=get_hp("pred_I"),
+                   error=get_hp("epsilon_I"),
+                   fitness=get_hp("fitness_I"),
+                   experience=_EXPERIENCE_MIN,
+                   time_stamp=time_step,
+                   action_set_size=_ACTION_SET_SIZE_MIN,
+                   numerosity=_NUMEROSITY_MIN)
+
+    @classmethod
+    def from_ga(cls, condition, action, prediction, error, fitness, time_step,
+                action_set_size):
+        return cls(condition=condition,
+                   action=action,
+                   prediction=prediction,
+                   error=error,
+                   fitness=fitness,
+                   experience=_EXPERIENCE_MIN,
+                   time_stamp=time_step,
+                   action_set_size=action_set_size,
+                   numerosity=_NUMEROSITY_MIN)
+
     @property
     def condition(self):
         return self._condition
 
-    @condition.setter
-    def condition(self, val):
-        self._condition = val
-
     @property
     def action(self):
         return self._action
-
-    @action.setter
-    def action(self, val):
-        self._action = val
 
     @property
     def prediction(self):
@@ -147,7 +165,7 @@ class Classifier:
         return self._condition.does_match(obs)
 
     def is_more_general(self, other):
-        return (self._condition.generality > other._condition.generality) \
+        return (self._condition.generality() > other._condition.generality()) \
                 and self.does_subsume(other)
 
     def does_subsume(self, other):

@@ -39,9 +39,11 @@ def _delete_single_microclfr(pop):
     clfr_to_remove = None
     accepted = False
 
+    num_macros = pop.num_macros
+
     while not accepted:
 
-        idx = get_rng().randint(0, pop.num_macros)
+        idx = get_rng().randint(0, num_macros)
         (clfr, vote) = (pop[idx], votes[idx])  # since pop ordered this is ok
         p_accept = (vote / max_vote)
 

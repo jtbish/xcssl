@@ -50,9 +50,9 @@ class TimedPopulationWrapper:
     def alter_numerosity(self, clfr, delta, op):
         self._wrapped_pop.alter_numerosity(clfr, delta, op)
 
-    def add_new(self, clfr, op, time_step=None):
+    def add_new(self, clfr, op):
         tick = time.perf_counter()
-        self._wrapped_pop.add_new(clfr, op, time_step)
+        self._wrapped_pop.add_new(clfr, op)
         tock = time.perf_counter()
 
         self._timers["add_new"] += (tock - tick)
@@ -121,7 +121,7 @@ class PopulationABC(metaclass=abc.ABCMeta):
         self._ops_history[op] += abs(delta)
 
     @abc.abstractmethod
-    def add_new(self, clfr, op, time_step=None):
+    def add_new(self, clfr, op):
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -142,7 +142,7 @@ class PopulationABC(metaclass=abc.ABCMeta):
 class VanillaPopulation(PopulationABC):
     """Default-style population that does not use an index and
     perfoms fully accurate and exhuastive matching."""
-    def add_new(self, clfr, op, time_step=None):
+    def add_new(self, clfr, op):
         self._clfrs.append(clfr)
         self._num_micros += clfr.numerosity
         assert op in ("covering", "insertion")
@@ -167,7 +167,7 @@ class FastMatchingPopulation(PopulationABC):
         super().__init__()
         self._index = CoverageMap.from_scratch(encoding, rasterizer_kwargs)
 
-    def add_new(self, clfr, op, time_step=None):
+    def add_new(self, clfr, op):
         self._clfrs.append(clfr)
         self._num_micros += clfr.numerosity
         assert op in ("covering", "insertion")

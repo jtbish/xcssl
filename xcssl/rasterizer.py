@@ -1,6 +1,5 @@
 import abc
 import itertools
-import math
 
 import numpy as np
 
