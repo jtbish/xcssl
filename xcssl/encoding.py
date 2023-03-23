@@ -22,8 +22,7 @@ class EncodingABC(metaclass=abc.ABCMeta):
         return self._COND_CLS(cond_alleles, self)
 
     def decode(self, cond_alleles):
-        phenotype_elems = self._decode(cond_alleles)
-        return Phenotype(phenotype_elems)
+        return Phenotype(self._decode(cond_alleles))
 
     @abc.abstractmethod
     def gen_covering_condition(self, obs):

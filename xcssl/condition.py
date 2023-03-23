@@ -8,7 +8,6 @@ class ConditionABC(metaclass=abc.ABCMeta):
         # alleles == genotype
         self._alleles = tuple(alleles)
         self._encoding = encoding
-
         self._phenotype = self._encoding.decode(self._alleles)
 
     @property

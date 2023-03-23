@@ -100,7 +100,9 @@ class Classifier:
 
     @experience.setter
     def experience(self, val):
-        assert val >= _EXPERIENCE_MIN
+        # experience should only ever increase
+        assert val > self._experience
+
         self._experience = val
         self._deletion_has_sufficient_exp = \
             (self._deletion_has_sufficient_exp or
@@ -112,7 +114,8 @@ class Classifier:
 
     @time_stamp.setter
     def time_stamp(self, val):
-        assert val >= _TIME_STAMP_MIN
+        # time stamp should only ever increase
+        assert val > self._time_stamp
         self._time_stamp = val
 
     @property

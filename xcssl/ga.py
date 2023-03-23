@@ -78,7 +78,7 @@ def run_ga(action_set, pop, time_step, encoding, obs, action_space):
 
         # Now, actually make the child Classifier obj.
         # (feed the constructor the Condition obj. plus all the stuff in the
-        # child_data dict)
+        # child_data dict as kwargs)
         child = Classifier.from_ga(condition=child_condition, **child_data)
 
         if get_hp("do_ga_subsumption"):
