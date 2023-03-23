@@ -133,9 +133,9 @@ class XCS:
 
         for clfr in match_set:
             a = clfr.action
-            fitness = clfr.fitness
-            prediction_arr[a] += (clfr.prediction * fitness)
-            fitness_sum_arr[a] += fitness
+            f = clfr.fitness
+            prediction_arr[a] += (clfr.prediction * f)
+            fitness_sum_arr[a] += f
 
         for a in self._env.action_space:
             if fitness_sum_arr[a] != 0:
@@ -174,10 +174,9 @@ class XCS:
         denom = 0
 
         for clfr in action_set:
-            numerosity = clfr.numerosity
-
-            numer += (clfr.time_stamp * numerosity)
-            denom += numerosity
+            n = clfr.numerosity
+            numer += (clfr.time_stamp * n)
+            denom += n
 
         return (numer / denom)
 

@@ -18,7 +18,7 @@ class ConditionABC(metaclass=abc.ABCMeta):
     def phenotype(self):
         return self._phenotype
 
-    def generality(self):
+    def calc_generality(self):
         return self._encoding.calc_phenotype_generality(self._phenotype)
 
     def does_match(self, obs):

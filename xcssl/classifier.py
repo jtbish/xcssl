@@ -168,7 +168,8 @@ class Classifier:
         return self._condition.does_match(obs)
 
     def is_more_general(self, other):
-        return (self._condition.generality() > other._condition.generality()) \
+        return (self._condition.calc_generality() >
+                other._condition.calc_generality()) \
                 and self.does_subsume(other)
 
     def does_subsume(self, other):

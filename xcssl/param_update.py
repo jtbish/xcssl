@@ -60,13 +60,12 @@ def _update_action_set_size(clfr, as_num_micros, beta, beta_inv):
 
 
 def _update_fitness(action_set, beta):
-    acc_sum = 0
-    acc_vec = []
-
     e_nought = get_hp("epsilon_nought")
     alpha = get_hp("alpha")
-    nu = get_hp("nu")
-    neg_nu = (-1 * nu)
+    neg_nu = (-1 * get_hp("nu"))
+
+    acc_sum = 0
+    acc_vec = []
 
     for clfr in action_set:
         if clfr.error < e_nought:

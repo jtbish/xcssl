@@ -15,12 +15,14 @@ def run_ga(action_set, pop, time_step, encoding, obs, action_space):
     parent_a = _tournament_selection(action_set)
     parent_b = _tournament_selection(action_set)
 
+    child_a_cond_alleles = list(parent_a.condition.alleles)
+    child_b_cond_alleles = list(parent_b.condition.alleles)
+
     # Build up the children data as dicts while doing crossover + mutation.
     # Only make the actual Classifier objs. for the children after both phases
     # are complete.
     children_data = {
         "a": {
-            "cond_alleles": list(parent_a.condition.alleles),
             "action": parent_a.action,
             "prediction": parent_a.prediction,
             "error": parent_a.error,
@@ -29,7 +31,6 @@ def run_ga(action_set, pop, time_step, encoding, obs, action_space):
             "action_set_size": parent_a.action_set_size
         },
         "b": {
-            "cond_alleles": list(parent_b.condition.alleles),
             "action": parent_b.action,
             "prediction": parent_b.prediction,
             "error": parent_b.error,
@@ -42,8 +43,6 @@ def run_ga(action_set, pop, time_step, encoding, obs, action_space):
     do_crossover = get_rng().random() < get_hp("chi")
     if do_crossover:
 
-        child_a_cond_alleles = children_data["a"]["cond_alleles"]
-        child_b_cond_alleles = children_data["b"]["cond_alleles"]
         # Crossover child cond alleles *IN-PLACE*
         _uniform_crossover(child_a_cond_alleles, child_b_cond_alleles)
 
@@ -59,19 +58,18 @@ def run_ga(action_set, pop, time_step, encoding, obs, action_space):
         children_data["a"]["fitness"] = avg_parent_fitness
         children_data["b"]["fitness"] = avg_parent_fitness
 
-    for child_label in ("a", "b"):
-        child_data = children_data[child_label]
+    for (child_label, child_cond_alleles) in (("a", child_a_cond_alleles),
+                                              ("b", child_b_cond_alleles)):
 
+        child_data = children_data[child_label]
         child_data["error"] *= _ERROR_CUTDOWN
         child_data["fitness"] *= _FITNESS_CUTDOWN
 
         # Mutate child cond alleles and action *NOT IN-PLACE*, hence
         # assignments
-        child_cond_alleles = child_data["cond_alleles"]
         child_cond_alleles = encoding.mutate_condition_alleles(
             child_cond_alleles, obs)
         child_condition = encoding.make_condition(child_cond_alleles)
-        del child_data["cond_alleles"]
 
         child_data["action"] = _mutate_action(child_data["action"],
                                               action_space)
