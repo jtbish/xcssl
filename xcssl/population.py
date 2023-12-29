@@ -141,7 +141,7 @@ class PopulationABC(metaclass=abc.ABCMeta):
 
 class VanillaPopulation(PopulationABC):
     """Default-style population that does not use an index and
-    perfoms fully accurate and exhuastive matching."""
+    perfoms exhuastive matching."""
     def add_new(self, clfr, op):
         self._clfrs.append(clfr)
         self._num_micros += clfr.numerosity
@@ -156,8 +156,8 @@ class VanillaPopulation(PopulationABC):
             self._ops_history[op] += clfr.numerosity
 
     def gen_match_set(self, obs):
-        """Full and exhaustive matching procedure: match each
-        macroclassifier."""
+        """Exhaustive matching procedure: match each
+        macroclassifier individually."""
         return [clfr for clfr in self._clfrs if clfr.does_match(obs)]
 
 

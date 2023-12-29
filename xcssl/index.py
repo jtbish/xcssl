@@ -1,4 +1,4 @@
-import numpy as np
+import itertools
 
 from .rasterizer import make_rasterizer
 
@@ -12,6 +12,7 @@ class CoverageMap:
 
         self._phenotype_count_map = self._init_phenotype_count_map(phenotypes)
 
+        # TODO get rid of this or keep?
         self._phenotype_aabb_map = self._init_phenotype_aabb_map(
             self._encoding, phenotype_set=self._phenotype_count_map.keys())
 
@@ -47,25 +48,29 @@ class CoverageMap:
         }
 
     def _gen_maps(self, encoding, rasterizer, phenotype_aabb_map):
+        # each 'grid cell' is a string of the form "(e_1, e_2, ..., e_k)"
+        # where each element e_i specifies the bin idx for dimension i
+        grid_cell_phenotypes_map = {}
+        k = rasterizer.num_grid_dims
+        b = rasterizer.num_bins_per_grid_dim
+
+        # init the grid cell phenotypes map with empty sets for all b**k
+        # combos of bins
+        for grid_cell_bin_combo_tup in itertools.product(
+                *itertools.repeat(tuple(range(0, b)), k)):
+            grid_cell_phenotypes_map[str(grid_cell_bin_combo_tup)] = set()
 
         phenotype_grid_cells_map = {}
-        grid_cell_phenotypes_map = np.empty(shape=rasterizer.num_grid_cells,
-                                            dtype="object")
-        for grid_cell in range(0, rasterizer.num_grid_cells):
-            grid_cell_phenotypes_map[grid_cell] = set()
-
         for (phenotype, aabb) in phenotype_aabb_map.items():
 
             grid_cells_covered_iter = rasterizer.rasterize_aabb(aabb)
             grid_cells_covered = []
 
-            for grid_cell_bin_combo in grid_cells_covered_iter:
+            for grid_cell_bin_combo_tup in grid_cells_covered_iter:
 
-                grid_cell = rasterizer.convert_grid_cell_bin_combo_to_dec(
-                    grid_cell_bin_combo)
+                grid_cell = str(grid_cell_bin_combo_tup)
 
                 grid_cells_covered.append(grid_cell)
-
                 (grid_cell_phenotypes_map[grid_cell]).add(phenotype)
 
             phenotype_grid_cells_map[phenotype] = tuple(grid_cells_covered)
@@ -75,7 +80,7 @@ class CoverageMap:
     def gen_sparse_phenotype_matching_map(self, obs):
         sparse_phenotype_matching_map = {}
 
-        grid_cell = self._rasterizer.rasterize_obs(obs)
+        grid_cell = str(self._rasterizer.rasterize_obs(obs))
 
         for phenotype in self._grid_cell_phenotypes_map[grid_cell]:
 
@@ -91,28 +96,20 @@ class CoverageMap:
             self._phenotype_count_map[phenotype] += 1
         except KeyError:
             self._phenotype_count_map[phenotype] = 1
-            do_add = True
-        else:
-            do_add = False
-
-        if do_add:
             self._add_phenotype(phenotype)
 
     def _add_phenotype(self, addee):
-
         aabb = self._encoding.make_phenotype_aabb(addee)
         self._phenotype_aabb_map[addee] = aabb
 
         grid_cells_covered_iter = self._rasterizer.rasterize_aabb(aabb)
         grid_cells_covered = []
 
-        for grid_cell_bin_combo in grid_cells_covered_iter:
+        for grid_cell_bin_combo_tup in grid_cells_covered_iter:
 
-            grid_cell = self._rasterizer.convert_grid_cell_bin_combo_to_dec(
-                grid_cell_bin_combo)
+            grid_cell = str(grid_cell_bin_combo_tup)
 
             grid_cells_covered.append(grid_cell)
-
             (self._grid_cell_phenotypes_map[grid_cell]).add(addee)
 
         self._phenotype_grid_cells_map[addee] = tuple(grid_cells_covered)
@@ -121,12 +118,9 @@ class CoverageMap:
         count = self._phenotype_count_map[phenotype]
         count -= 1
 
-        do_remove = (count == 0)
-
-        if do_remove:
+        if count == 0:
             del self._phenotype_count_map[phenotype]
             self._remove_phenotype(phenotype)
-
         else:
             self._phenotype_count_map[phenotype] = count
 

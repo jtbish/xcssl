@@ -1,6 +1,6 @@
 class AxisAlignedBoundingBox:
     def __init__(self, intervals):
-        self._intervals = tuple(intervals)
+        self._intervals = intervals
 
     def contains_obs_given_dims(self, obs, dim_idxs):
         for dim_idx in dim_idxs:

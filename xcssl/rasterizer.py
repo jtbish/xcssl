@@ -1,4 +1,5 @@
 import abc
+import math
 import itertools
 
 import numpy as np
@@ -32,26 +33,10 @@ class ObsSpaceRasterizerABC(metaclass=abc.ABCMeta):
         self._k = num_grid_dims
         self._b = num_bins_per_grid_dim
 
-        self._b_pow_vec = self._gen_b_pow_vec(self._b, self._k)
-
-        self._num_grid_cells = (self._b**self._k)
-
         self._grid_dim_idxs = self._init_grid_dim_idxs(self._d, self._k, seed)
 
         self._anti_grid_dim_idxs = self._calc_anti_grid_dim_idxs(
             self._d, self._k, self._grid_dim_idxs)
-
-    def _gen_b_pow_vec(self, b, k):
-        b_pow = 1
-        res = [b_pow]
-
-        for _ in range(k - 1):
-            b_pow *= b
-            res.append(b_pow)
-
-        assert len(res) == k
-
-        return tuple(reversed(res))
 
     def _init_grid_dim_idxs(self, d, k, seed):
         rng = np.random.RandomState(int(seed))
@@ -71,29 +56,26 @@ class ObsSpaceRasterizerABC(metaclass=abc.ABCMeta):
 
         return anti_grid_dim_idxs
 
-    @property
-    def num_grid_cells(self):
-        return self._num_grid_cells
-
     def rasterize_aabb(self, aabb):
         bins_covered_on_grid_dims = self._rasterize_aabb_on_grid_dims(aabb)
         return itertools.product(*bins_covered_on_grid_dims)
+
+    @property
+    def num_grid_dims(self):
+        return self._k
+
+    @property
+    def num_bins_per_grid_dim(self):
+        return self._b
 
     @abc.abstractmethod
     def _rasterize_aabb_on_grid_dims(self, aabb):
         raise NotImplementedError
 
-    def rasterize_obs(self, obs):
-        return self.convert_grid_cell_bin_combo_to_dec(
-            self._rasterize_obs_on_grid_dims(obs))
-
     @abc.abstractmethod
-    def _rasterize_obs_on_grid_dims(self, obs):
+    def rasterize_obs(self, obs):
+        """Return grid cell bin combo tup for obs."""
         raise NotImplementedError
-
-    def convert_grid_cell_bin_combo_to_dec(self, grid_cell_bin_combo):
-        return sum(e * b_pow
-                   for (e, b_pow) in zip(grid_cell_bin_combo, self._b_pow_vec))
 
     @abc.abstractmethod
     def match_idxd_aabb(self, aabb, obs):
@@ -132,12 +114,12 @@ class IntegerObsSpaceRasterizer(ObsSpaceRasterizerABC):
 
         return bins_covered_on_grid_dims
 
-    def _rasterize_obs_on_grid_dims(self, obs):
+    def rasterize_obs(self, obs):
         return tuple(obs[idx] for idx in self._grid_dim_idxs)
 
     def match_idxd_aabb(self, aabb, obs):
         # logic here is that, since all possible vals on each of the grid dims
-        # is being indexed, the only thing needed to check if aabb matches is
+        # are being indexed, the only thing needed to check if aabb matches is
         # to check the anti grid dims
         return aabb.contains_obs_given_dims(obs, self._anti_grid_dim_idxs)
 
@@ -173,15 +155,16 @@ class RealObsSpaceRasterizer(ObsSpaceRasterizerABC):
 
         return bins_covered_on_grid_dims
 
-    def _rasterize_obs_on_grid_dims(self, obs):
+    def rasterize_obs(self, obs):
         return tuple(
             self._calc_bin_idx(obs[idx]) for idx in self._grid_dim_idxs)
 
     def _calc_bin_idx(self, val):
-        # first do int division, cast to int
+        # first determine integer bin idx along range of [0.0, 1.0] that val
+        # belongs to.
         # then handle the edge case of one over the max bin idx by truncating
         # with min()
-        return min(int(val * self._b), self._max_bin_idx)
+        return min(math.floor(val * self._b), self._max_bin_idx)
 
     def match_idxd_aabb(self, aabb, obs):
         # logic here is that, if obs not contained in anti grid dim AABB
