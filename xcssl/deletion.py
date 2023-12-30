@@ -36,7 +36,7 @@ def _delete_single_microclfr(pop):
     assert max_vote is not None
 
     # roulette wheel selection via stochastic acceptance
-    clfr_to_remove = None
+    clfr_idx_to_remove = None
     accepted = False
 
     num_macros = pop.num_macros
@@ -53,13 +53,13 @@ def _delete_single_microclfr(pop):
             if clfr.numerosity > 1:
                 pop.alter_numerosity(clfr, delta=-1, op="deletion")
             elif clfr.numerosity == 1:
-                clfr_to_remove = clfr
+                clfr_idx_to_remove = clfr
             else:
                 # not possible
                 assert False
 
-    if clfr_to_remove is not None:
-        pop.remove(clfr_to_remove, op="deletion")
+    if clfr_idx_to_remove is not None:
+        pop.remove(clfr_idx_to_remove, op="deletion")
 
 
 def _deletion_vote(clfr, avg_fitness_in_pop, vote_increase_threshold):

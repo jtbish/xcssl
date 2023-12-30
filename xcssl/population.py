@@ -1,7 +1,7 @@
 import abc
 import time
 
-from .index import CoverageMap
+from .index import RandomIndex
 
 
 def make_vanilla_population(do_timing=False):
@@ -57,9 +57,9 @@ class TimedPopulationWrapper:
 
         self._timers["add_new"] += (tock - tick)
 
-    def remove(self, clfr, op=None):
+    def remove(self, clfr_idx, op=None):
         tick = time.perf_counter()
-        self._wrapped_pop.remove(clfr, op)
+        self._wrapped_pop.remove(clfr_idx, op)
         tock = time.perf_counter()
 
         self._timers["remove"] += (tock - tick)
@@ -125,7 +125,7 @@ class PopulationABC(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def remove(self, clfr, op=None):
+    def remove(self, clfr_idx, op=None):
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -148,8 +148,8 @@ class VanillaPopulation(PopulationABC):
         assert op in ("covering", "insertion")
         self._ops_history[op] += clfr.numerosity
 
-    def remove(self, clfr, op=None):
-        self._clfrs.remove(clfr)
+    def remove(self, clfr_idx, op=None):
+        clfr = self._clfrs.pop(clfr_idx)
         self._num_micros -= clfr.numerosity
         if op is not None:
             assert op == "deletion"
@@ -165,7 +165,7 @@ class FastMatchingPopulation(PopulationABC):
     """Population that uses an index to perform fast matching."""
     def __init__(self, encoding, rasterizer_kwargs):
         super().__init__()
-        self._index = CoverageMap.from_scratch(encoding, rasterizer_kwargs)
+        self._index = RandomIndex.from_scratch(encoding, rasterizer_kwargs)
 
     def add_new(self, clfr, op):
         self._clfrs.append(clfr)
@@ -175,8 +175,8 @@ class FastMatchingPopulation(PopulationABC):
 
         self._index.try_add_phenotype(clfr.condition.phenotype)
 
-    def remove(self, clfr, op=None):
-        self._clfrs.remove(clfr)
+    def remove(self, clfr_idx, op=None):
+        clfr = self._clfrs.pop(clfr_idx)
         self._num_micros -= clfr.numerosity
         if op is not None:
             assert op == "deletion"
