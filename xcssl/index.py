@@ -1,67 +1,48 @@
 import itertools
+import bisect
 
 from .rasterizer import make_rasterizer
 
 
-class CoverageMap:
-    def __init__(self, encoding, rasterizer_kwargs, phenotypes):
+class RandomIndex:
+    def __init__(self, encoding, rasterizer_kwargs, int_id_clfr_map):
         self._encoding = encoding
 
         self._rasterizer = make_rasterizer(self._encoding.obs_space,
                                            rasterizer_kwargs)
 
-        self._phenotype_count_map = self._init_phenotype_count_map(phenotypes)
-
-        # TODO get rid of this or keep?
-        self._phenotype_aabb_map = self._init_phenotype_aabb_map(
-            self._encoding, phenotype_set=self._phenotype_count_map.keys())
-
-        (self._phenotype_grid_cells_map,
-         self._grid_cell_phenotypes_map) = self._gen_maps(
-             self._encoding, self._rasterizer, self._phenotype_aabb_map)
+        (self._int_id_grid_cells_map,
+         self._grid_cell_sorted_int_ids_map) = self._gen_maps(
+             self._encoding, self._rasterizer, int_id_clfr_map)
 
     @classmethod
     def from_scratch(cls, encoding, rasterizer_kwargs):
-        # no phenotypes passed to init
-        return cls(encoding, rasterizer_kwargs, phenotypes=[])
+        # empty map passed to init
+        return cls(encoding, rasterizer_kwargs, int_id_clfr_map={})
 
     @classmethod
-    def from_phenotypes(cls, encoding, rasterizer_kwargs, phenotypes):
-        # given phenotypes passed to init
-        return cls(encoding, rasterizer_kwargs, phenotypes)
+    def from_existing(cls, encoding, rasterizer_kwargs, int_id_clfr_map):
+        # given map passed to init
+        return cls(encoding, rasterizer_kwargs, int_id_clfr_map)
 
-    def _init_phenotype_count_map(self, phenotypes):
-        phenotype_count_map = {}
-
-        for phenotype in phenotypes:
-            try:
-                phenotype_count_map[phenotype] += 1
-            except KeyError:
-                phenotype_count_map[phenotype] = 1
-
-        return phenotype_count_map
-
-    def _init_phenotype_aabb_map(self, encoding, phenotype_set):
-        return {
-            phenotype: encoding.make_phenotype_aabb(phenotype)
-            for phenotype in phenotype_set
-        }
-
-    def _gen_maps(self, encoding, rasterizer, phenotype_aabb_map):
+    def _gen_maps(self, encoding, rasterizer, int_id_clfr_map):
         # each 'grid cell' is a string of the form "(e_1, e_2, ..., e_k)"
         # where each element e_i specifies the bin idx for dimension i
-        grid_cell_phenotypes_map = {}
+        grid_cell_sorted_int_ids_map = {}
         k = rasterizer.num_grid_dims
         b = rasterizer.num_bins_per_grid_dim
 
-        # init the grid cell phenotypes map with empty sets for all b**k
+        # init the grid cell int ids map with empty lists for all b**k
         # combos of bins
         for grid_cell_bin_combo_tup in itertools.product(
                 *itertools.repeat(tuple(range(0, b)), k)):
-            grid_cell_phenotypes_map[str(grid_cell_bin_combo_tup)] = set()
+            grid_cell_sorted_int_ids_map[str(grid_cell_bin_combo_tup)] = []
 
-        phenotype_grid_cells_map = {}
-        for (phenotype, aabb) in phenotype_aabb_map.items():
+        int_id_grid_cells_map = {}
+        for (int_id, clfr) in int_id_clfr_map.items():
+
+            phenotype = clfr.condition.phenotype
+            aabb = phenotype.monkey_patch_and_return_aabb(encoding)
 
             grid_cells_covered_iter = rasterizer.rasterize_aabb(aabb)
             grid_cells_covered = []
@@ -71,36 +52,16 @@ class CoverageMap:
                 grid_cell = str(grid_cell_bin_combo_tup)
 
                 grid_cells_covered.append(grid_cell)
-                (grid_cell_phenotypes_map[grid_cell]).add(phenotype)
+                # insert int_id into the grid cell int ids map, 
+                # keeping sorted order
+                bisect.insort(grid_cell_sorted_int_ids_map[grid_cell], int_id)
 
-            phenotype_grid_cells_map[phenotype] = tuple(grid_cells_covered)
+            int_id_grid_cells_map[int_id] = grid_cells_covered
 
-        return (phenotype_grid_cells_map, grid_cell_phenotypes_map)
+        return (int_id_grid_cells_map, grid_cell_sorted_int_ids_map)
 
-    def gen_sparse_phenotype_matching_map(self, obs):
-        sparse_phenotype_matching_map = {}
-
-        grid_cell = str(self._rasterizer.rasterize_obs(obs))
-
-        for phenotype in self._grid_cell_phenotypes_map[grid_cell]:
-
-            aabb = self._phenotype_aabb_map[phenotype]
-
-            sparse_phenotype_matching_map[
-                phenotype] = self._rasterizer.match_idxd_aabb(aabb, obs)
-
-        return sparse_phenotype_matching_map
-
-    def try_add_phenotype(self, phenotype):
-        try:
-            self._phenotype_count_map[phenotype] += 1
-        except KeyError:
-            self._phenotype_count_map[phenotype] = 1
-            self._add_phenotype(phenotype)
-
-    def _add_phenotype(self, addee):
-        aabb = self._encoding.make_phenotype_aabb(addee)
-        self._phenotype_aabb_map[addee] = aabb
+    def add(self, int_id, phenotype):
+        aabb = phenotype.monkey_patch_and_return_aabb(self._encoding)
 
         grid_cells_covered_iter = self._rasterizer.rasterize_aabb(aabb)
         grid_cells_covered = []
@@ -110,25 +71,31 @@ class CoverageMap:
             grid_cell = str(grid_cell_bin_combo_tup)
 
             grid_cells_covered.append(grid_cell)
-            (self._grid_cell_phenotypes_map[grid_cell]).add(addee)
+            # insert int_id into the grid cell int ids map, 
+            # keeping sorted order
+            bisect.insort(self._grid_cell_sorted_int_ids_map[grid_cell], int_id)
 
-        self._phenotype_grid_cells_map[addee] = tuple(grid_cells_covered)
+        self._int_id_grid_cells_map[int_id] = grid_cells_covered
 
-    def try_remove_phenotype(self, phenotype):
-        count = self._phenotype_count_map[phenotype]
-        count -= 1
-
-        if count == 0:
-            del self._phenotype_count_map[phenotype]
-            self._remove_phenotype(phenotype)
-        else:
-            self._phenotype_count_map[phenotype] = count
-
-    def _remove_phenotype(self, removee):
-        del self._phenotype_aabb_map[removee]
-
-        grid_cells_covered = self._phenotype_grid_cells_map[removee]
-        del self._phenotype_grid_cells_map[removee]
-
+    def remove(self, int_id):
+        grid_cells_covered = self._int_id_grid_cells_map[int_id]
         for grid_cell in grid_cells_covered:
-            (self._grid_cell_phenotypes_map[grid_cell]).remove(removee)
+            (self._grid_cell_sorted_int_ids_map[grid_cell]).remove(int_id)
+
+        del self._int_id_grid_cells_map[int_id]
+
+    def gen_match_set(self, int_id_clfr_map, obs):
+        match_set = []
+
+        grid_cell = str(self._rasterizer.rasterize_obs(obs))
+        # since below for loop is in sorted int id order, will yield same match
+        # set order as VanillaPopuation, and thus the rest of the stochastic
+        # process will follow same RNG trajectory
+        for int_id in self._grid_cell_sorted_int_ids_map[grid_cell]:
+
+            clfr = int_id_clfr_map[int_id]
+            if self._rasterizer.match_idxd_aabb(
+                    aabb=clfr.condition.phenotype.aabb, obs=obs):
+                match_set.add(clfr)
+
+        return match_set

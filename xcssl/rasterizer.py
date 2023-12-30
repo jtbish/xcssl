@@ -115,7 +115,7 @@ class IntegerObsSpaceRasterizer(ObsSpaceRasterizerABC):
         return bins_covered_on_grid_dims
 
     def rasterize_obs(self, obs):
-        return tuple(obs[idx] for idx in self._grid_dim_idxs)
+        return [obs[idx] for idx in self._grid_dim_idxs]
 
     def match_idxd_aabb(self, aabb, obs):
         # logic here is that, since all possible vals on each of the grid dims
@@ -156,8 +156,7 @@ class RealObsSpaceRasterizer(ObsSpaceRasterizerABC):
         return bins_covered_on_grid_dims
 
     def rasterize_obs(self, obs):
-        return tuple(
-            self._calc_bin_idx(obs[idx]) for idx in self._grid_dim_idxs)
+        return [self._calc_bin_idx(obs[idx]) for idx in self._grid_dim_idxs]
 
     def _calc_bin_idx(self, val):
         # first determine integer bin idx along range of [0.0, 1.0] that val
